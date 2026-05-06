@@ -104,6 +104,17 @@ function buildBaseUrl(protocol, host) {
     return protocol + '://' + host;
 }
 
+/**
+ * Saat di browser (testing), XHR ke server Odoo kena CORS.
+ * Gunakan proxy lokal /proxy?url=... untuk bypass.
+ * Di APK Cordova tidak ada CORS — pakai URL langsung.
+ */
+function proxyUrl(targetUrl) {
+    var isCordova = typeof cordova !== 'undefined' && cordova.version !== 'stub-browser';
+    if (isCordova) return targetUrl;
+    return '/proxy?url=' + encodeURIComponent(targetUrl);
+}
+
 function updateProtocolToggle() {
     $('btn-http').classList.toggle('active',  App.protocol === 'http');
     $('btn-https').classList.toggle('active', App.protocol === 'https');
@@ -134,7 +145,7 @@ function fetchDatabases() {
     App.host    = host;
     App.baseUrl = buildBaseUrl(App.protocol, host);
 
-    var url = App.baseUrl + '/web/database/list';
+    var url = proxyUrl(App.baseUrl + '/web/database/list');
 
     var xhr = new XMLHttpRequest();
     xhr.open('POST', url, true);

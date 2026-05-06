@@ -140,19 +140,65 @@
 
     <script src="cordova.js"></script>
     <script>
-    /* ── DEBUG OVERLAY — tampil di layar HP ── */
+    /* ── DEBUG OVERLAY — hidden by default, toggle via burger button ── */
     (function() {
+        // Burger button (kiri atas, selalu visible)
+        var btn = document.createElement('button');
+        btn.id = 'debug-toggle';
+        btn.innerHTML = '&#9776;';
+        btn.style.cssText = [
+            'position:fixed','top:10px','left:10px',
+            'width:36px','height:36px',
+            'background:rgba(113,75,103,0.85)',
+            'color:#fff','border:none','border-radius:8px',
+            'font-size:20px','cursor:pointer',
+            'z-index:100000','display:flex',
+            'align-items:center','justify-content:center',
+            'box-shadow:0 2px 8px rgba(0,0,0,0.3)',
+            'line-height:1'
+        ].join(';');
+        document.body.appendChild(btn);
+
+        // Panel log (hidden by default)
         var box = document.createElement('div');
         box.id = 'debug-box';
         box.style.cssText = [
             'position:fixed','bottom:0','left:0','right:0',
-            'max-height:45vh','overflow-y:auto',
-            'background:rgba(0,0,0,0.85)','color:#0f0',
+            'height:50vh','overflow-y:auto',
+            'background:rgba(0,0,0,0.92)','color:#0f0',
             'font-size:11px','font-family:monospace',
-            'padding:8px','z-index:99999',
-            'white-space:pre-wrap','word-break:break-all'
+            'padding:8px 8px 8px 8px','z-index:99999',
+            'white-space:pre-wrap','word-break:break-all',
+            'display:none',
+            'border-top:2px solid #714B67'
         ].join(';');
+
+        // Header panel log
+        var header = document.createElement('div');
+        header.style.cssText = 'display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;';
+        header.innerHTML =
+            '<span style="color:#e8d5e0;font-weight:bold;font-size:12px">WU Odoo Debug Log</span>' +
+            '<button id="debug-clear" style="background:#714B67;color:#fff;border:none;border-radius:4px;padding:2px 8px;font-size:11px;cursor:pointer">Clear</button>';
+        box.appendChild(header);
+
+        var content = document.createElement('div');
+        content.id = 'debug-content';
+        box.appendChild(content);
         document.body.appendChild(box);
+
+        // Toggle
+        var visible = false;
+        btn.addEventListener('click', function() {
+            visible = !visible;
+            box.style.display = visible ? 'block' : 'none';
+            btn.style.background = visible ? 'rgba(200,50,50,0.85)' : 'rgba(113,75,103,0.85)';
+            if (visible) content.scrollTop = content.scrollHeight;
+        });
+        document.getElementById('debug-clear').addEventListener('click', function(e) {
+            e.stopPropagation();
+            lines = [];
+            content.innerHTML = '';
+        });
 
         var lines = [];
         function log(type, args) {
@@ -160,13 +206,13 @@
                 try { return (typeof a === 'object') ? JSON.stringify(a) : String(a); }
                 catch(e) { return String(a); }
             }).join(' ');
-            var ts = new Date().toISOString().substr(11,12);
+            var ts    = new Date().toISOString().substr(11,12);
             var color = type==='error'?'#f66': type==='warn'?'#fa0':'#0f0';
             lines.push('<span style="color:'+color+'">['+ts+']['+type.toUpperCase()+'] '+
                 msg.replace(/</g,'&lt;')+'</span>');
-            if (lines.length > 80) lines.shift();
-            box.innerHTML = lines.join('\n');
-            box.scrollTop = box.scrollHeight;
+            if (lines.length > 200) lines.shift();
+            content.innerHTML = lines.join('\n');
+            if (visible) content.scrollTop = content.scrollHeight;
         }
 
         var _log   = console.log.bind(console);
@@ -176,7 +222,7 @@
         console.warn  = function() { _warn.apply(console,arguments);  log('warn', arguments); };
         console.error = function() { _error.apply(console,arguments); log('error',arguments); };
 
-        window.onerror = function(msg, src, line, col, err) {
+        window.onerror = function(msg, src, line, col) {
             log('error', [msg + ' @ ' + src + ':' + line + ':' + col]);
             return false;
         };
@@ -184,25 +230,22 @@
             log('error', ['UnhandledPromise: ' + (e.reason || e)]);
         };
 
-        /* Log info awal */
         log('log', ['=== WU Odoo Debug ===']);
-        log('log', ['UA: ' + navigator.userAgent.substr(0,80)]);
+        log('log', ['UA: ' + navigator.userAgent.substr(0,60)]);
         log('log', ['cordova defined: ' + (typeof cordova !== 'undefined')]);
         log('log', ['DOM ready, waiting deviceready...']);
 
-        /* Pantau deviceready */
         document.addEventListener('deviceready', function() {
             log('log', ['deviceready FIRED ✓']);
             log('log', ['cordova version: ' + (typeof cordova !== 'undefined' ? cordova.version : 'N/A')]);
         }, false);
 
-        /* Timeout warning */
         setTimeout(function() {
-            log('warn', ['3s passed — deviceready status: ' +
+            log('warn', ['3s — deviceready: ' +
                 (typeof cordova !== 'undefined' ? 'cordova exists' : 'cordova NOT found')]);
         }, 3000);
         setTimeout(function() {
-            log('warn', ['8s passed — forcing startApp if not started']);
+            log('warn', ['8s — forcing startApp if not started']);
         }, 8000);
     })();
     </script>
