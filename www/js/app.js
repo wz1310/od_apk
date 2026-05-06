@@ -243,20 +243,128 @@ function openOdoo() {
         database: App.database, baseUrl: App.baseUrl
     }));
     dlLog('INF', 'openOdoo → ' + App.odooUrl);
-    // Navigasi langsung — session cookie terjaga, app.js tidak perlu aktif
-    // Download dihandle oleh addon wu_mobile_download yang inject script ke Odoo
-    window.location.href = App.odooUrl;
+
+    if (isCordovaReal() && window.cordova && window.cordova.InAppBrowser) {
+        openOdooInAppBrowser(App.odooUrl);
+    } else {
+        window.location.href = App.odooUrl;
+    }
 }
 
-/* ── InAppBrowser untuk intercept custom scheme wuodoo://download ────────────
- * Addon wu_mobile_download di server Odoo inject JavaScript ke halaman Odoo.
- * Saat user klik download, script tersebut:
- * 1. Panggil /wu/mobile/get_download_token untuk dapat access_token
- * 2. Navigasi ke "wuodoo://download?url=...&filename=..."
- * Cordova mendeteksi scheme ini via shouldOverrideUrlLoading dan
- * menjalankan downloadFileToStorage() tanpa perlu session cookie.
- * --------------------------------------------------------------------------- */
+/* ── InAppBrowser — inject downloader.js setelah Odoo load ──────────────────── */
 var _iab = null;
+
+function openOdooInAppBrowser(url) {
+    dlLog('INF', 'openOdooInAppBrowser: ' + url);
+
+    if (_iab) {
+        try { _iab.close(); } catch(e) {}
+        _iab = null;
+    }
+
+    // _blank: WebView baru, tapi kita inject downloader.js setelah load
+    // Session Odoo akan ada setelah user login di IAB
+    _iab = cordova.InAppBrowser.open(url, '_blank', [
+        'location=no',
+        'toolbar=no',
+        'fullscreen=yes',
+        'zoom=no',
+        'hardwareback=yes',
+        'clearcache=no',
+        'clearsessioncache=no'
+    ].join(','));
+
+    if (!_iab) {
+        dlLog('ERR', 'IAB gagal, fallback window.location');
+        window.location.href = url;
+        return;
+    }
+    dlLog('INF', 'IAB dibuka ✓');
+
+    // Setelah setiap halaman selesai load, inject downloader.js
+    _iab.addEventListener('loadstop', function(event) {
+        var stopUrl = event.url || '';
+        dlLog('INF', 'IAB loadstop: ' + stopUrl.substr(0, 80));
+
+        // Inject downloader.js ke halaman Odoo
+        // File ini ada di www/js/downloader.js (bisa diakses via https://localhost)
+        _iab.executeScript({
+            code: [
+                '(function(){',
+                '  if(window.__wuDownloaderInstalled) return;',
+                '  var s = document.createElement("script");',
+                '  s.src = "https://localhost/js/downloader.js";',
+                '  s.onerror = function(){ console.error("[WU] downloader.js gagal load"); };',
+                '  s.onload = function(){ console.log("[WU] downloader.js loaded"); };',
+                '  document.head.appendChild(s);',
+                '})()'
+            ].join('')
+        }, function(result) {
+            dlLog('INF', 'executeScript inject OK');
+        });
+    });
+
+    // Intercept custom scheme wuodoo://download dari downloader.js
+    _iab.addEventListener('loadstart', function(event) {
+        var navUrl = event.url || '';
+
+        if (navUrl.indexOf('wuodoo://download') === 0) {
+            dlLog('INF', '>>> wuodoo://download terdeteksi');
+            try { _iab.stop(); } catch(e) {}
+
+            var params = {};
+            var query = navUrl.split('?')[1] || '';
+            query.split('&').forEach(function(part) {
+                var kv = part.split('=');
+                if (kv.length >= 2) {
+                    params[decodeURIComponent(kv[0])] = decodeURIComponent(kv.slice(1).join('='));
+                }
+            });
+
+            dlLog('INF', 'URL: ' + (params.url || ''));
+            dlLog('INF', 'Filename: ' + (params.filename || ''));
+
+            if (params.url) {
+                // Ambil cookie session dari IAB untuk FileTransfer
+                _iab.executeScript({ code: 'document.cookie' }, function(vals) {
+                    if (vals && vals[0]) {
+                        window._iabCookies = vals[0];
+                        dlLog('INF', 'Cookie: ' + String(vals[0]).substr(0, 60));
+                    }
+                    downloadFileToStorage(params.url, params.filename);
+                });
+            }
+            return;
+        }
+
+        // Log URL lain (jangan log semua agar tidak spam)
+        if (navUrl && navUrl.indexOf('http') === 0) {
+            dlLog('INF', 'IAB loadstart: ' + navUrl.substr(0, 80));
+        }
+    });
+
+    _iab.addEventListener('loaderror', function(e) {
+        dlLog('ERR', 'IAB loaderror: ' + e.message);
+    });
+
+    _iab.addEventListener('exit', function() {
+        dlLog('INF', 'IAB exit');
+        _iab = null;
+        showPage('page-connect');
+        renderSavedServers();
+    });
+
+    // Listen postMessage dari downloader.js (alternatif custom scheme)
+    window.addEventListener('message', function(event) {
+        try {
+            var data = JSON.parse(event.data);
+            if (data && data.type === 'wu_download') {
+                dlLog('INF', 'postMessage download: ' + data.filename);
+                downloadFileToStorage(data.url, data.filename);
+            }
+        } catch(e) {}
+    });
+}
 
 function openOdooInAppBrowser(url) {
     dlLog('INF', 'openOdooInAppBrowser: ' + url);
@@ -708,6 +816,16 @@ function doTransfer(dirEntry, filename, url, onFail) {
     var ft = new FileTransfer(); // eslint-disable-line no-undef
     var uri = encodeURI(url);
 
+    // Kirim cookie session dari IAB agar Odoo tidak reject request
+    var headers = {};
+    var cookieStr = window._iabCookies || '';
+    if (cookieStr) {
+        headers['Cookie'] = cookieStr;
+        dlLog('INF', 'Cookie dikirim: ' + cookieStr.substr(0, 60));
+    } else {
+        dlLog('WRN', 'Tidak ada cookie — server mungkin reject');
+    }
+
     ft.onprogress = function(ev) {
         if (ev.lengthComputable) {
             dlLog('INF', 'Progress: ' + Math.round(ev.loaded / ev.total * 100) + '%');
@@ -721,7 +839,6 @@ function doTransfer(dirEntry, filename, url, onFail) {
         uri, targetPath,
         function(entry) {
             dlLog('INF', 'SUKSES: ' + entry.toURL());
-            // Tampilkan path yang mudah dimengerti user
             var friendlyPath = entry.toURL()
                 .replace('file:///storage/emulated/0/', '/Internal Storage/')
                 .replace('file://', '');
@@ -729,8 +846,6 @@ function doTransfer(dirEntry, filename, url, onFail) {
         },
         function(err) {
             dlLog('ERR', 'GAGAL code=' + err.code + ' http=' + err.http_status);
-            // Jika error permission (code 1 = FileTransferError.FILE_NOT_FOUND_ERR
-            // atau code 3 = CONNECTION_ERR), coba folder berikutnya
             if (typeof onFail === 'function') {
                 onFail();
             } else {
@@ -739,7 +854,8 @@ function doTransfer(dirEntry, filename, url, onFail) {
                 showDownloadToast(msg, true);
             }
         },
-        true  // trustAllHosts untuk server HTTP internal
+        true,
+        { headers: headers }
     );
 }
 
