@@ -169,17 +169,15 @@ function fetchDatabases() {
     xhr.onerror = function() {
         console.error('XHR onerror! url=' + url);
         setConnectLoading(false);
-        showConnectError(
-            'Tidak dapat terhubung ke:\n' + App.baseUrl +
-            '\n\nPastikan:\n• Port benar (contoh: 157.230.247.220:8069)\n' +
-            '• Server Odoo berjalan\n• Koneksi internet aktif'
-        );
+        console.warn('onerror — fallback ke input manual database');
+        showDatabasePage([]);
     };
 
     xhr.ontimeout = function() {
         console.error('XHR timeout! url=' + url);
         setConnectLoading(false);
-        showConnectError('Timeout 15 detik. Coba: ' + host + ':8069');
+        console.warn('ontimeout — fallback ke input manual database');
+        showDatabasePage([]);
     };
 
     console.log('sending XHR...');
@@ -195,6 +193,17 @@ function showDatabasePage(dbs) {
     list.innerHTML = '';
 
     if (dbs.length === 0) {
+        // Sembunyikan error lama, tampilkan info ringan
+        hide('db-error');
+        var infoEl = $('db-manual-info');
+        if (!infoEl) {
+            infoEl = document.createElement('p');
+            infoEl.id = 'db-manual-info';
+            infoEl.style.cssText = 'color:#888;font-size:13px;margin:0 0 12px 0;text-align:center;';
+            var manualDiv = $('db-manual');
+            manualDiv.insertBefore(infoEl, manualDiv.firstChild);
+        }
+        infoEl.textContent = 'Daftar database tidak dapat diambil otomatis. Masukkan nama database secara manual.';
         show('db-manual');
         showPage('page-database');
         return;
