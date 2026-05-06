@@ -257,13 +257,17 @@ function openOdoo() {
 var _iab = null; // referensi InAppBrowser yang sedang aktif
 
 function openOdooInAppBrowser(url) {
-    console.log('openOdooInAppBrowser: ' + url);
+    dlLog('INF', 'openOdooInAppBrowser: ' + url);
+    _ensureDlPanel();
 
     // Tutup instance lama jika ada
     if (_iab) {
         try { _iab.close(); } catch(e) {}
         _iab = null;
     }
+
+    // Cek apakah cordova.InAppBrowser tersedia
+    dlLog('INF', 'cordova.InAppBrowser type: ' + typeof cordova.InAppBrowser);
 
     // Buka InAppBrowser fullscreen tanpa toolbar (tampilan seperti native app)
     _iab = cordova.InAppBrowser.open(url, '_blank', [
@@ -286,40 +290,48 @@ function openOdooInAppBrowser(url) {
     ].join(','));
 
     if (!_iab) {
-        console.error('InAppBrowser gagal dibuka, fallback ke window.location');
+        dlLog('ERR', 'InAppBrowser.open() mengembalikan null/undefined!');
+        dlLog('WRN', 'Fallback ke window.location.href');
         window.location.href = url;
         return;
     }
+    dlLog('INF', 'InAppBrowser instance dibuat: ' + typeof _iab);
 
     // ── Event: loadstart — intercept URL sebelum WebView navigasi ──────────
     _iab.addEventListener('loadstart', function(event) {
         var navUrl = event.url || '';
-        console.log('IAB loadstart: ' + navUrl);
+        dlLog('INF', 'IAB loadstart: ' + navUrl);
 
-        if (isDownloadUrl(navUrl)) {
-            console.log('Download URL terdeteksi: ' + navUrl);
-            // Hentikan navigasi WebView ke URL download
-            _iab.stop();
-            // Mulai download ke storage
+        var isDL = isDownloadUrl(navUrl);
+        dlLog('INF', 'isDownloadUrl(' + navUrl.substr(0,60) + '): ' + isDL);
+
+        if (isDL) {
+            dlLog('INF', '>>> DOWNLOAD URL TERDETEKSI, menghentikan navigasi...');
+            try { _iab.stop(); dlLog('INF', '_iab.stop() OK'); }
+            catch(e) { dlLog('WRN', '_iab.stop() error: ' + e); }
             downloadFileToStorage(navUrl);
         }
     });
 
+    // ── Event: loadstop ─────────────────────────────────────────────────────
+    _iab.addEventListener('loadstop', function(event) {
+        dlLog('INF', 'IAB loadstop: ' + (event.url || ''));
+    });
+
     // ── Event: loaderror ────────────────────────────────────────────────────
     _iab.addEventListener('loaderror', function(event) {
-        console.error('IAB loaderror: ' + JSON.stringify(event));
+        dlLog('ERR', 'IAB loaderror: code=' + event.code + ' msg=' + event.message + ' url=' + event.url);
     });
 
     // ── Event: exit — user tutup InAppBrowser ───────────────────────────────
     _iab.addEventListener('exit', function() {
-        console.log('IAB exit');
+        dlLog('INF', 'IAB exit — kembali ke halaman connect');
         _iab = null;
-        // Kembali ke halaman connect agar user bisa reconnect
         showPage('page-connect');
         renderSavedServers();
     });
 
-    console.log('InAppBrowser dibuka ✓');
+    dlLog('INF', 'Semua event listener IAB terpasang ✓');
 }
 
 /* ── Side Menu ───────────────────────────────────────────────────────────────── */
@@ -410,6 +422,12 @@ function hideSplash() {
 function startApp() {
     console.log('startApp() running...');
     try {
+        _ensureDlPanel();
+        dlLog('INF', '=== WU Odoo Download Debug ===');
+        dlLog('INF', 'isCordovaReal: ' + isCordovaReal());
+        dlLog('INF', 'cordova.InAppBrowser: ' + (typeof cordova !== 'undefined' ? typeof cordova.InAppBrowser : 'cordova undefined'));
+        dlLog('INF', 'FileTransfer: ' + (typeof FileTransfer));
+        dlLog('INF', 'resolveLocalFileSystemURL: ' + (typeof window.resolveLocalFileSystemURL));
         initEvents();
         restoreFromOdoo();
         renderSavedServers();
@@ -426,6 +444,97 @@ function startApp() {
  * ke folder Downloads di local storage HP menggunakan cordova-plugin-file
  * dan cordova-plugin-file-transfer.
  * --------------------------------------------------------------------------- */
+
+// ── Debug log panel (muncul di atas IAB, bisa di-toggle) ─────────────────────
+var _dlLogs = [];
+var _dlPanelVisible = false;
+
+function dlLog(level, msg) {
+    var ts = new Date().toISOString().substr(11, 12);
+    var line = '[' + ts + '][' + level + '] ' + msg;
+    _dlLogs.push({ level: level, line: line });
+    if (_dlLogs.length > 300) _dlLogs.shift();
+
+    // Juga kirim ke console biasa (debug overlay di index.html)
+    if (level === 'ERR')  console.error('[DL] ' + msg);
+    else if (level === 'WRN') console.warn('[DL] ' + msg);
+    else console.log('[DL] ' + msg);
+
+    _renderDlPanel();
+}
+
+function _renderDlPanel() {
+    var box = document.getElementById('dl-log-box');
+    if (!box || !_dlPanelVisible) return;
+    var content = document.getElementById('dl-log-content');
+    if (!content) return;
+    content.innerHTML = _dlLogs.map(function(e) {
+        var color = e.level === 'ERR' ? '#f66' : e.level === 'WRN' ? '#fa0' : '#0f0';
+        return '<span style="color:' + color + '">' +
+            e.line.replace(/</g, '&lt;') + '</span>';
+    }).join('\n');
+    content.scrollTop = content.scrollHeight;
+}
+
+function _ensureDlPanel() {
+    if (document.getElementById('dl-log-box')) return;
+
+    // Tombol toggle DL log (pojok kanan atas)
+    var btn = document.createElement('button');
+    btn.id = 'dl-log-toggle';
+    btn.textContent = '⬇ LOG';
+    btn.style.cssText = [
+        'position:fixed', 'top:10px', 'right:10px',
+        'background:rgba(0,120,0,0.85)', 'color:#fff',
+        'border:none', 'border-radius:8px',
+        'padding:6px 12px', 'font-size:13px', 'font-weight:bold',
+        'cursor:pointer', 'z-index:200000',
+        'box-shadow:0 2px 8px rgba(0,0,0,0.4)'
+    ].join(';');
+    document.body.appendChild(btn);
+
+    // Panel log
+    var box = document.createElement('div');
+    box.id = 'dl-log-box';
+    box.style.cssText = [
+        'position:fixed', 'bottom:0', 'left:0', 'right:0',
+        'height:55vh', 'background:rgba(0,0,0,0.95)',
+        'color:#0f0', 'font-size:11px', 'font-family:monospace',
+        'z-index:199999', 'display:none', 'flex-direction:column',
+        'border-top:3px solid #00aa00'
+    ].join(';');
+
+    var hdr = document.createElement('div');
+    hdr.style.cssText = 'display:flex;justify-content:space-between;align-items:center;padding:6px 10px;background:#003300;flex-shrink:0;';
+    hdr.innerHTML = '<span style="color:#0f0;font-weight:bold;font-size:12px">📥 Download Debug Log</span>' +
+        '<div style="display:flex;gap:6px">' +
+        '<button id="dl-log-clear" style="background:#555;color:#fff;border:none;border-radius:4px;padding:2px 8px;font-size:11px;cursor:pointer">Clear</button>' +
+        '<button id="dl-log-close" style="background:#aa0000;color:#fff;border:none;border-radius:4px;padding:2px 8px;font-size:11px;cursor:pointer">✕</button>' +
+        '</div>';
+    box.appendChild(hdr);
+
+    var content = document.createElement('div');
+    content.id = 'dl-log-content';
+    content.style.cssText = 'flex:1;overflow-y:auto;padding:6px 8px;white-space:pre-wrap;word-break:break-all;';
+    box.appendChild(content);
+    document.body.appendChild(box);
+
+    btn.addEventListener('click', function() {
+        _dlPanelVisible = !_dlPanelVisible;
+        box.style.display = _dlPanelVisible ? 'flex' : 'none';
+        btn.style.background = _dlPanelVisible ? 'rgba(180,0,0,0.85)' : 'rgba(0,120,0,0.85)';
+        if (_dlPanelVisible) _renderDlPanel();
+    });
+    document.getElementById('dl-log-clear').addEventListener('click', function(e) {
+        e.stopPropagation(); _dlLogs = [];
+        document.getElementById('dl-log-content').innerHTML = '';
+    });
+    document.getElementById('dl-log-close').addEventListener('click', function(e) {
+        e.stopPropagation(); _dlPanelVisible = false;
+        box.style.display = 'none';
+        btn.style.background = 'rgba(0,120,0,0.85)';
+    });
+}
 
 // Ekstensi / pola URL yang dianggap sebagai file download
 var DOWNLOAD_EXTENSIONS = /\.(pdf|xlsx|xls|csv|docx|doc|zip|png|jpg|jpeg|gif|txt|ods|odt|pptx|ppt)(\?|$)/i;
@@ -492,113 +601,133 @@ function showDownloadToast(msg, isError) {
     toast.textContent = msg;
     toast.style.opacity = '1';
     clearTimeout(toast._timer);
-    toast._timer = setTimeout(function() { toast.style.opacity = '0'; }, 3500);
+    toast._timer = setTimeout(function() { toast.style.opacity = '0'; }, isError ? 6000 : 3500);
 }
 
 function downloadFileToStorage(url) {
+    dlLog('INF', 'downloadFileToStorage() dipanggil');
+    dlLog('INF', 'URL: ' + url);
+
     if (!isCordovaReal()) {
-        console.warn('downloadFileToStorage: bukan Cordova real, skip');
+        dlLog('WRN', 'Bukan Cordova real, skip download');
+        showDownloadToast('Bukan Cordova real', true);
         return;
     }
+    dlLog('INF', 'isCordovaReal: true');
+
+    // Cek plugin File tersedia
+    if (typeof window.resolveLocalFileSystemURL === 'undefined') {
+        dlLog('ERR', 'cordova-plugin-file TIDAK tersedia! resolveLocalFileSystemURL undefined');
+        showDownloadToast('Plugin file tidak tersedia', true);
+        return;
+    }
+    dlLog('INF', 'resolveLocalFileSystemURL: tersedia');
+
+    // Cek plugin FileTransfer tersedia
+    if (typeof FileTransfer === 'undefined') {
+        dlLog('ERR', 'cordova-plugin-file-transfer TIDAK tersedia! FileTransfer undefined');
+        showDownloadToast('Plugin file-transfer tidak tersedia', true);
+        return;
+    }
+    dlLog('INF', 'FileTransfer: tersedia');
 
     var filename = getFilenameFromUrl(url);
-    console.log('downloadFileToStorage: ' + filename + ' from ' + url);
-    showDownloadToast('Mengunduh ' + filename + '...');
+    dlLog('INF', 'Filename: ' + filename);
+    showDownloadToast('⏳ Mengunduh ' + filename + '...');
 
-    var baseDir = (window.cordova && window.cordova.file)
-        ? (cordova.file.externalRootDirectory || cordova.file.dataDirectory)
-        : null;
-
-    if (!baseDir) {
-        showDownloadToast('Storage tidak tersedia', true);
+    // Log semua path yang tersedia
+    if (window.cordova && window.cordova.file) {
+        dlLog('INF', 'cordova.file.externalRootDirectory: ' + cordova.file.externalRootDirectory);
+        dlLog('INF', 'cordova.file.externalDataDirectory: ' + cordova.file.externalDataDirectory);
+        dlLog('INF', 'cordova.file.dataDirectory: ' + cordova.file.dataDirectory);
+        dlLog('INF', 'cordova.file.documentsDirectory: ' + cordova.file.documentsDirectory);
+    } else {
+        dlLog('ERR', 'cordova.file TIDAK tersedia!');
+        showDownloadToast('cordova.file tidak tersedia', true);
         return;
     }
 
-    var downloadDir = baseDir + 'Download/';
+    // Pilih direktori tujuan: utamakan Downloads publik
+    var baseDir = cordova.file.externalRootDirectory || cordova.file.dataDirectory;
+    dlLog('INF', 'baseDir dipilih: ' + baseDir);
 
-    window.resolveLocalFileSystemURL(downloadDir, function(dirEntry) {
+    // Coba resolve folder Download langsung
+    var downloadPath = baseDir + 'Download/';
+    dlLog('INF', 'Mencoba resolve: ' + downloadPath);
+
+    window.resolveLocalFileSystemURL(downloadPath, function(dirEntry) {
+        dlLog('INF', 'Folder Download sudah ada: ' + dirEntry.toURL());
         doTransfer(dirEntry, filename, url);
-    }, function() {
+    }, function(err1) {
+        dlLog('WRN', 'Folder Download tidak ada (code=' + err1.code + '), mencoba buat...');
         window.resolveLocalFileSystemURL(baseDir, function(rootEntry) {
+            dlLog('INF', 'baseDir resolved: ' + rootEntry.toURL());
             rootEntry.getDirectory('Download', { create: true }, function(dirEntry) {
+                dlLog('INF', 'Folder Download berhasil dibuat: ' + dirEntry.toURL());
                 doTransfer(dirEntry, filename, url);
-            }, function(err) {
-                console.error('Gagal buat folder Download: ' + JSON.stringify(err));
-                showDownloadToast('Gagal membuat folder Download', true);
+            }, function(err2) {
+                dlLog('ERR', 'Gagal buat folder Download: code=' + err2.code + ' msg=' + err2.message);
+                showDownloadToast('Gagal buat folder Download (err ' + err2.code + ')', true);
             });
-        }, function(err) {
-            console.error('Gagal resolve baseDir: ' + JSON.stringify(err));
-            showDownloadToast('Tidak dapat akses storage', true);
+        }, function(err2) {
+            dlLog('ERR', 'Gagal resolve baseDir: code=' + err2.code + ' msg=' + err2.message);
+            showDownloadToast('Tidak dapat akses storage (err ' + err2.code + ')', true);
         });
     });
 }
 
 function doTransfer(dirEntry, filename, url) {
     var targetPath = dirEntry.toURL() + filename;
-    console.log('FileTransfer target: ' + targetPath);
+    dlLog('INF', 'doTransfer() target: ' + targetPath);
+    dlLog('INF', 'doTransfer() url: ' + url);
 
     var ft = new FileTransfer(); // eslint-disable-line no-undef
     var uri = encodeURI(url);
+    dlLog('INF', 'encodeURI: ' + uri);
 
     // Kirim cookie session agar Odoo tidak redirect ke login
     var headers = {};
     if (window._iabCookies) {
         headers['Cookie'] = window._iabCookies;
+        dlLog('INF', 'Cookie dikirim: ' + window._iabCookies.substr(0, 60) + '...');
+    } else {
+        dlLog('WRN', 'Tidak ada cookie session (_iabCookies kosong)');
     }
 
+    // Progress callback
+    ft.onprogress = function(progressEvent) {
+        if (progressEvent.lengthComputable) {
+            var pct = Math.round((progressEvent.loaded / progressEvent.total) * 100);
+            dlLog('INF', 'Progress: ' + pct + '% (' + progressEvent.loaded + '/' + progressEvent.total + ')');
+        } else {
+            dlLog('INF', 'Progress: ' + progressEvent.loaded + ' bytes');
+        }
+    };
+
+    dlLog('INF', 'Memulai ft.download()...');
     ft.download(
         uri,
         targetPath,
         function(entry) {
-            console.log('Download sukses: ' + entry.toURL());
-            showDownloadToast('Tersimpan: ' + filename);
+            dlLog('INF', 'Download SUKSES: ' + entry.toURL());
+            dlLog('INF', 'Nama file: ' + entry.name);
+            showDownloadToast('✅ Tersimpan: ' + filename);
         },
         function(err) {
-            console.error('FileTransfer error: ' + JSON.stringify(err));
-            var msg = 'Gagal unduh';
-            if (err.code === 1) msg = 'Server tidak ditemukan';
-            else if (err.code === 3) msg = 'Koneksi terputus';
-            else if (err.code === 4) msg = 'File tidak ditemukan di server';
+            dlLog('ERR', 'FileTransfer ERROR!');
+            dlLog('ERR', 'code: ' + err.code);
+            dlLog('ERR', 'source: ' + err.source);
+            dlLog('ERR', 'target: ' + err.target);
+            dlLog('ERR', 'http_status: ' + err.http_status);
+            dlLog('ERR', 'body: ' + err.body);
+            dlLog('ERR', 'exception: ' + err.exception);
+            var msg = '❌ Gagal unduh (code ' + err.code + ')';
+            if (err.http_status) msg += ' HTTP ' + err.http_status;
             showDownloadToast(msg, true);
         },
         true,    // trustAllHosts untuk server HTTP internal
         { headers: headers }
     );
-}
-
-function setupDownloadInterceptor() {
-    if (!isCordovaReal()) return;
-
-    // Override window.open agar link download tidak membuka browser eksternal
-    var _origOpen = window.open;
-    window.open = function(url, target, features) {
-        if (url && isDownloadUrl(url)) {
-            console.log('window.open intercepted download: ' + url);
-            downloadFileToStorage(url);
-            return null;
-        }
-        return _origOpen.call(window, url, target, features);
-    };
-
-    // Intercept klik pada semua <a> tag (termasuk yang dibuat dinamis oleh Odoo)
-    document.addEventListener('click', function(e) {
-        var el = e.target;
-        while (el && el.tagName !== 'A') el = el.parentElement;
-        if (!el) return;
-        var href = el.getAttribute('href') || '';
-        if (href && isDownloadUrl(href)) {
-            e.preventDefault();
-            e.stopPropagation();
-            var absUrl = href;
-            if (href.charAt(0) === '/') {
-                absUrl = App.baseUrl + href;
-            }
-            console.log('Link click intercepted download: ' + absUrl);
-            downloadFileToStorage(absUrl);
-        }
-    }, true); // capture phase
-
-    console.log('Download interceptor aktif');
 }
 
 /* ── Cordova deviceready ─────────────────────────────────────────────────────── */
