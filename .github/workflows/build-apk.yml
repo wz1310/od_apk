@@ -87,7 +87,7 @@ jobs:
 
       # ── 6. Add Android platform ──────────────────────────────────────────────
       - name: Add Android platform
-        run: cordova platform add android@12 --save
+        run: cordova platform add android@12 --save || cordova platform update android@12
 
       # ── 7. Install Cordova plugins ───────────────────────────────────────────
       - name: Install Cordova plugins

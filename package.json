@@ -10,7 +10,6 @@
     "prepare": "cordova prepare android"
   },
   "dependencies": {
-    "cordova-android": "^12.0.1",
     "cordova-plugin-inappbrowser": "^5.0.0",
     "cordova-plugin-network-information": "^3.0.0",
     "cordova-plugin-splashscreen": "^6.0.0",
@@ -21,9 +20,6 @@
     "cordova": "^12.0.0"
   },
   "cordova": {
-    "platforms": [
-      "android"
-    ],
     "plugins": {
       "cordova-plugin-whitelist": {},
       "cordova-plugin-statusbar": {},
