@@ -243,7 +243,83 @@ function openOdoo() {
         database: App.database, baseUrl: App.baseUrl
     }));
     console.log('openOdoo → ' + App.odooUrl);
-    window.location.href = App.odooUrl;
+
+    // Gunakan InAppBrowser jika tersedia (Cordova real) agar bisa intercept download
+    if (isCordovaReal() && typeof cordova.InAppBrowser !== 'undefined') {
+        openOdooInAppBrowser(App.odooUrl);
+    } else {
+        // Fallback browser dev
+        window.location.href = App.odooUrl;
+    }
+}
+
+/* ── InAppBrowser dengan download interceptor ────────────────────────────────── */
+var _iab = null; // referensi InAppBrowser yang sedang aktif
+
+function openOdooInAppBrowser(url) {
+    console.log('openOdooInAppBrowser: ' + url);
+
+    // Tutup instance lama jika ada
+    if (_iab) {
+        try { _iab.close(); } catch(e) {}
+        _iab = null;
+    }
+
+    // Buka InAppBrowser fullscreen tanpa toolbar (tampilan seperti native app)
+    _iab = cordova.InAppBrowser.open(url, '_blank', [
+        'location=no',
+        'toolbar=no',
+        'toolbarposition=top',
+        'closebuttoncaption=Tutup',
+        'closebuttoncolor=#ffffff',
+        'toolbarcolor=#714B67',
+        'navigationbuttoncolor=#ffffff',
+        'hidenavigationbuttons=yes',
+        'hideurlbar=yes',
+        'fullscreen=yes',
+        'zoom=no',
+        'hardwareback=yes',
+        'clearcache=no',
+        'clearsessioncache=no',
+        'allowInlineMediaPlayback=yes',
+        'mediaPlaybackRequiresUserAction=no'
+    ].join(','));
+
+    if (!_iab) {
+        console.error('InAppBrowser gagal dibuka, fallback ke window.location');
+        window.location.href = url;
+        return;
+    }
+
+    // ── Event: loadstart — intercept URL sebelum WebView navigasi ──────────
+    _iab.addEventListener('loadstart', function(event) {
+        var navUrl = event.url || '';
+        console.log('IAB loadstart: ' + navUrl);
+
+        if (isDownloadUrl(navUrl)) {
+            console.log('Download URL terdeteksi: ' + navUrl);
+            // Hentikan navigasi WebView ke URL download
+            _iab.stop();
+            // Mulai download ke storage
+            downloadFileToStorage(navUrl);
+        }
+    });
+
+    // ── Event: loaderror ────────────────────────────────────────────────────
+    _iab.addEventListener('loaderror', function(event) {
+        console.error('IAB loaderror: ' + JSON.stringify(event));
+    });
+
+    // ── Event: exit — user tutup InAppBrowser ───────────────────────────────
+    _iab.addEventListener('exit', function() {
+        console.log('IAB exit');
+        _iab = null;
+        // Kembali ke halaman connect agar user bisa reconnect
+        showPage('page-connect');
+        renderSavedServers();
+    });
+
+    console.log('InAppBrowser dibuka ✓');
 }
 
 /* ── Side Menu ───────────────────────────────────────────────────────────────── */
@@ -264,6 +340,11 @@ function handleBackButton() {
     if ($('side-menu').classList.contains('open')) { closeMenu(); return; }
     if (!$('page-database').classList.contains('hidden')) {
         showPage('page-connect'); renderSavedServers(); return;
+    }
+    // Jika InAppBrowser aktif, navigasi back di dalam IAB
+    if (_iab) {
+        _iab.executeScript({ code: 'window.history.back();' });
+        return;
     }
     if (typeof navigator.app !== 'undefined') navigator.app.exitApp();
 }
@@ -334,7 +415,6 @@ function startApp() {
         renderSavedServers();
         showPage('page-connect');
         hideSplash();
-        setupDownloadInterceptor();
         console.log('app ready ✓');
     } catch(e) {
         console.error('startApp ERROR: ' + e.message + '\n' + e.stack);
@@ -460,6 +540,12 @@ function doTransfer(dirEntry, filename, url) {
     var ft = new FileTransfer(); // eslint-disable-line no-undef
     var uri = encodeURI(url);
 
+    // Kirim cookie session agar Odoo tidak redirect ke login
+    var headers = {};
+    if (window._iabCookies) {
+        headers['Cookie'] = window._iabCookies;
+    }
+
     ft.download(
         uri,
         targetPath,
@@ -475,7 +561,8 @@ function doTransfer(dirEntry, filename, url) {
             else if (err.code === 4) msg = 'File tidak ditemukan di server';
             showDownloadToast(msg, true);
         },
-        true  // trustAllHosts untuk server HTTP internal
+        true,    // trustAllHosts untuk server HTTP internal
+        { headers: headers }
     );
 }
 
