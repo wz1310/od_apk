@@ -10,7 +10,7 @@
 </head>
 <body>
 
-    <!-- ── SPLASH SCREEN ─────────────────────────────────────── -->
+    <!-- ── SPLASH ────────────────────────────────────────────────────────── -->
     <div id="splash-screen">
         <div class="splash-logo">
             <svg viewBox="0 0 120 120" xmlns="http://www.w3.org/2000/svg">
@@ -28,7 +28,7 @@
         <div class="splash-loader"><div class="loader-bar"></div></div>
     </div>
 
-    <!-- ── HALAMAN KONEKSI (input host) ──────────────────────── -->
+    <!-- ── HALAMAN KONEKSI ───────────────────────────────────────────────── -->
     <div id="page-connect" class="page hidden">
         <div class="page-header">
             <div class="app-logo-small">
@@ -49,11 +49,11 @@
                 <div class="input-with-icon">
                     <span class="input-icon">🌐</span>
                     <input type="text" id="input-host"
-                           placeholder="contoh: 192.168.1.10:8069"
+                           placeholder="contoh: 157.230.247.220:8069"
                            autocomplete="off" autocorrect="off"
                            autocapitalize="none" spellcheck="false" />
                 </div>
-                <div class="input-hint">IP, hostname, atau domain (dengan port jika perlu)</div>
+                <div class="input-hint">IP atau domain dengan port (contoh: 192.168.1.10:8069)</div>
             </div>
 
             <div class="protocol-toggle">
@@ -71,14 +71,14 @@
                 <span class="btn-loader hidden">⏳</span>
             </button>
 
-            <div class="saved-servers-section" id="saved-servers-section">
+            <div class="saved-servers-section hidden" id="saved-servers-section">
                 <div class="section-title">Server Tersimpan</div>
                 <div id="saved-servers-list"></div>
             </div>
         </div>
     </div>
 
-    <!-- ── HALAMAN PILIH DATABASE ─────────────────────────────── -->
+    <!-- ── HALAMAN PILIH DATABASE ────────────────────────────────────────── -->
     <div id="page-database" class="page hidden">
         <div class="page-header">
             <button id="btn-back-to-connect" class="btn-back">← Kembali</button>
@@ -87,7 +87,7 @@
         </div>
 
         <div class="form-card">
-            <div id="db-loading" class="loading-state">
+            <div id="db-loading" class="loading-state hidden">
                 <div class="spinner"></div>
                 <p>Mengambil daftar database...</p>
             </div>
@@ -102,43 +102,23 @@
                        placeholder="Masukkan nama database"
                        autocomplete="off" autocapitalize="none" />
                 <button id="btn-db-manual-connect" class="btn-primary" style="margin-top:12px">
-                    Lanjutkan
+                    Buka Odoo
                 </button>
             </div>
         </div>
     </div>
 
-    <!-- ── HALAMAN WEBVIEW (Odoo) ─────────────────────────────── -->
-    <div id="page-webview" class="page hidden">
-        <div id="webview-toolbar">
-            <button id="btn-menu" class="toolbar-btn" title="Menu">☰</button>
-            <div id="webview-url-bar">
-                <span id="webview-server-name"></span>
-            </div>
-            <button id="btn-reload" class="toolbar-btn" title="Reload">↻</button>
-        </div>
-
-        <div id="webview-container">
-            <iframe id="odoo-frame"
-                    src="about:blank"
-                    allow="fullscreen"
-                    sandbox="allow-same-origin allow-scripts allow-forms allow-popups allow-modals allow-top-navigation">
-            </iframe>
-            <div id="frame-loading" class="frame-loading hidden">
-                <div class="spinner"></div>
-                <p>Memuat Odoo...</p>
-            </div>
-            <div id="frame-error" class="frame-error hidden">
-                <div class="error-icon">⚠️</div>
-                <h3>Tidak dapat terhubung</h3>
-                <p id="frame-error-msg"></p>
-                <button id="btn-frame-retry" class="btn-primary">Coba Lagi</button>
-                <button id="btn-frame-back"  class="btn-secondary">Ganti Server</button>
-            </div>
+    <!-- ── ERROR PAGE ────────────────────────────────────────────────────── -->
+    <div id="page-error" class="page hidden">
+        <div class="error-full">
+            <div class="error-icon-big">📡</div>
+            <h2>Tidak Ada Koneksi</h2>
+            <p>Periksa koneksi internet atau jaringan lokal Anda.</p>
+            <button id="btn-error-retry" class="btn-primary">Coba Lagi</button>
         </div>
     </div>
 
-    <!-- ── SIDE MENU ──────────────────────────────────────────── -->
+    <!-- ── SIDE MENU (untuk halaman database) ───────────────────────────── -->
     <div id="side-menu" class="side-menu hidden">
         <div class="side-menu-header">
             <div class="side-menu-logo">
@@ -155,26 +135,8 @@
             </div>
             <button id="btn-close-menu" class="btn-close-menu">✕</button>
         </div>
-        <div class="side-menu-items">
-            <button class="menu-item" id="menu-home">🏠 Beranda Odoo</button>
-            <button class="menu-item" id="menu-reload">↻ Muat Ulang</button>
-            <button class="menu-item" id="menu-change-db">🗄️ Ganti Database</button>
-            <button class="menu-item" id="menu-change-server">🌐 Ganti Server</button>
-            <div class="menu-divider"></div>
-            <button class="menu-item menu-item-danger" id="menu-logout">🚪 Logout</button>
-        </div>
     </div>
     <div id="side-menu-overlay" class="side-menu-overlay hidden"></div>
-
-    <!-- ── ERROR PAGE ─────────────────────────────────────────── -->
-    <div id="page-error" class="page hidden">
-        <div class="error-full">
-            <div class="error-icon-big">📡</div>
-            <h2>Tidak Ada Koneksi</h2>
-            <p>Periksa koneksi internet atau jaringan lokal Anda.</p>
-            <button id="btn-error-retry" class="btn-primary">Coba Lagi</button>
-        </div>
-    </div>
 
     <script src="js/app.js"></script>
 </body>

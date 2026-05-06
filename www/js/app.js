@@ -1,26 +1,26 @@
 /* ─────────────────────────────────────────────────────────────────────────────
    WU Odoo Mobile Client — app.js
-   Alur: Splash → Koneksi (input host) → Pilih Database → WebView Odoo
+   Alur: Splash → Koneksi → Pilih Database → WebView Odoo (window.location)
 ───────────────────────────────────────────────────────────────────────────── */
-
 'use strict';
 
-/* ── State aplikasi ─────────────────────────────────────────────────────────── */
 var App = {
-    protocol:    'http',
-    host:        '',
-    database:    '',
-    baseUrl:     '',
+    protocol:     'http',
+    host:         '',
+    database:     '',
+    baseUrl:      '',
+    odooUrl:      '',
     savedServers: [],
-    isOnline:    true,
+    inOdoo:       false,
 };
 
-/* ── Utilitas DOM ───────────────────────────────────────────────────────────── */
-function $(id)          { return document.getElementById(id); }
-function show(id)       { $(id).classList.remove('hidden'); }
-function hide(id)       { $(id).classList.add('hidden'); }
+/* ── DOM helpers ────────────────────────────────────────────────────────────── */
+function $(id)   { return document.getElementById(id); }
+function show(id){ $(id).classList.remove('hidden'); }
+function hide(id){ $(id).classList.add('hidden'); }
+
 function showPage(name) {
-    ['page-connect','page-database','page-webview','page-error'].forEach(function(p) {
+    ['page-connect','page-database','page-webview','page-error'].forEach(function(p){
         $(p).classList.add('hidden');
     });
     $(name).classList.remove('hidden');
@@ -36,8 +36,7 @@ function loadSavedServers() {
 
 function saveServer(host, protocol, database) {
     loadSavedServers();
-    // Hapus duplikat
-    App.savedServers = App.savedServers.filter(function(s) {
+    App.savedServers = App.savedServers.filter(function(s){
         return !(s.host === host && s.protocol === protocol);
     });
     App.savedServers.unshift({ host: host, protocol: protocol, database: database, ts: Date.now() });
@@ -55,7 +54,6 @@ function deleteServer(index) {
 function renderSavedServers() {
     loadSavedServers();
     var list = $('saved-servers-list');
-    var section = $('saved-servers-section');
     list.innerHTML = '';
     if (!App.savedServers.length) { hide('saved-servers-section'); return; }
     show('saved-servers-section');
@@ -67,11 +65,10 @@ function renderSavedServers() {
                 '<div class="saved-server-url">' + s.protocol + '://' + escHtml(s.host) + '</div>' +
                 (s.database ? '<div class="saved-server-db">DB: ' + escHtml(s.database) + '</div>' : '') +
             '</div>' +
-            '<button class="saved-server-delete" data-idx="' + i + '" title="Hapus">✕</button>';
-
+            '<button class="saved-server-delete" data-idx="' + i + '">✕</button>';
         item.querySelector('.saved-server-info').addEventListener('click', function() {
             $('input-host').value = s.host;
-            App.protocol = s.protocol;
+            App.protocol = s.protocol || 'http';
             updateProtocolToggle();
             if (s.database) {
                 App.host     = s.host;
@@ -82,7 +79,7 @@ function renderSavedServers() {
                 fetchDatabases();
             }
         });
-        item.querySelector('.saved-server-delete').addEventListener('click', function(e) {
+        item.querySelector('.saved-server-delete').addEventListener('click', function(e){
             e.stopPropagation();
             deleteServer(parseInt(this.dataset.idx));
         });
@@ -100,7 +97,8 @@ function escHtml(str) {
 function buildBaseUrl(protocol, host) {
     host = host.trim().replace(/\/+$/, '');
     if (!host) return '';
-    if (host.startsWith('http://') || host.startsWith('https://')) return host;
+    // Jika user sudah ketik http:// atau https://, pakai apa adanya
+    if (/^https?:\/\//i.test(host)) return host;
     return protocol + '://' + host;
 }
 
@@ -109,13 +107,11 @@ function updateProtocolToggle() {
     $('btn-https').classList.toggle('active', App.protocol === 'https');
 }
 
-function setConnectLoading(loading) {
-    var btn  = $('btn-connect');
-    var text = btn.querySelector('.btn-text');
-    var ldr  = btn.querySelector('.btn-loader');
-    btn.disabled = loading;
-    text.classList.toggle('hidden', loading);
-    ldr.classList.toggle('hidden', !loading);
+function setConnectLoading(on) {
+    var btn = $('btn-connect');
+    btn.disabled = on;
+    btn.querySelector('.btn-text').classList.toggle('hidden', on);
+    btn.querySelector('.btn-loader').classList.toggle('hidden', !on);
 }
 
 function showConnectError(msg) {
@@ -125,7 +121,7 @@ function showConnectError(msg) {
 }
 function hideConnectError() { $('connect-error').classList.add('hidden'); }
 
-/* ── Fetch daftar database dari Odoo ────────────────────────────────────────── */
+/* ── Fetch database list ────────────────────────────────────────────────────── */
 function fetchDatabases() {
     var host = $('input-host').value.trim();
     if (!host) { showConnectError('Masukkan alamat server terlebih dahulu.'); return; }
@@ -138,7 +134,6 @@ function fetchDatabases() {
 
     var url = App.baseUrl + '/web/database/list';
 
-    // Gunakan XMLHttpRequest agar kompatibel dengan WebView lama
     var xhr = new XMLHttpRequest();
     xhr.open('POST', url, true);
     xhr.setRequestHeader('Content-Type', 'application/json');
@@ -152,30 +147,39 @@ function fetchDatabases() {
                 var dbs  = resp.result || [];
                 showDatabasePage(dbs);
             } catch(e) {
-                showConnectError('Respons server tidak valid. Pastikan ini server Odoo.');
+                // Mungkin Odoo berjalan tapi endpoint /web/database/list diblokir
+                // Langsung tampilkan input manual
+                showDatabasePage([]);
             }
+        } else if (xhr.status === 403 || xhr.status === 404) {
+            // Odoo bisa jadi disable list_db — tampilkan input manual
+            showDatabasePage([]);
         } else {
-            showConnectError('Server merespons dengan error ' + xhr.status + '. Periksa alamat server.');
+            showConnectError('Server error ' + xhr.status + '. Periksa alamat server.');
         }
     };
 
     xhr.onerror = function() {
         setConnectLoading(false);
         showConnectError(
-            'Tidak dapat terhubung ke ' + App.baseUrl + '.\n' +
-            'Periksa:\n• Alamat server sudah benar\n• Server Odoo sedang berjalan\n• Koneksi jaringan aktif'
+            'Tidak dapat terhubung ke:\n' + App.baseUrl +
+            '\n\nPastikan:\n' +
+            '• Port sudah benar (contoh: 157.230.247.220:8069)\n' +
+            '• Server Odoo sedang berjalan\n' +
+            '• Firewall/port terbuka\n' +
+            '• Koneksi internet aktif'
         );
     };
 
     xhr.ontimeout = function() {
         setConnectLoading(false);
-        showConnectError('Koneksi timeout. Server tidak merespons dalam 15 detik.');
+        showConnectError('Timeout — server tidak merespons dalam 15 detik.\nCoba tambahkan port, contoh: ' + host + ':8069');
     };
 
     xhr.send(JSON.stringify({ jsonrpc: '2.0', method: 'call', params: {} }));
 }
 
-/* ── Tampilkan halaman pilih database ───────────────────────────────────────── */
+/* ── Halaman pilih database ─────────────────────────────────────────────────── */
 function showDatabasePage(dbs) {
     $('db-server-label').textContent = App.baseUrl;
     hide('db-loading');
@@ -187,7 +191,6 @@ function showDatabasePage(dbs) {
     list.innerHTML = '';
 
     if (dbs.length === 0) {
-        // Tidak ada database — tampilkan input manual
         show('db-manual');
         showPage('page-database');
         return;
@@ -208,7 +211,6 @@ function showDatabasePage(dbs) {
         list.appendChild(item);
     });
 
-    // Tombol input manual di bawah list
     var manualToggle = document.createElement('div');
     manualToggle.className = 'db-manual-toggle';
     manualToggle.textContent = 'Masukkan nama database secara manual';
@@ -222,49 +224,23 @@ function showDatabasePage(dbs) {
     showPage('page-database');
 }
 
-/* ── Buka Odoo di WebView ───────────────────────────────────────────────────── */
+/* ── Buka Odoo — GANTI window.location, bukan iframe ───────────────────────── */
 function openOdoo() {
-    var odooUrl = App.baseUrl + '/web?db=' + encodeURIComponent(App.database);
+    App.odooUrl = App.baseUrl + '/web?db=' + encodeURIComponent(App.database);
+    App.inOdoo  = true;
 
-    $('webview-server-name').textContent = App.host + ' — ' + App.database;
-    $('side-menu-server').textContent    = App.baseUrl;
+    // Simpan state ke localStorage agar bisa kembali ke app setelah navigasi
+    localStorage.setItem('wu_last_server',   JSON.stringify({
+        host: App.host, protocol: App.protocol,
+        database: App.database, baseUrl: App.baseUrl
+    }));
 
-    showPage('page-webview');
-    loadFrame(odooUrl);
+    // Navigasi langsung — WebView Cordova akan render Odoo di window ini
+    window.location.href = App.odooUrl;
 }
 
-function loadFrame(url) {
-    var frame   = $('odoo-frame');
-    var loading = $('frame-loading');
-    var errDiv  = $('frame-error');
-
-    show('frame-loading');
-    hide('frame-error');
-    frame.classList.add('hidden');
-
-    // Timeout jika frame tidak load dalam 30 detik
-    var loadTimeout = setTimeout(function() {
-        hide('frame-loading');
-        show('frame-error');
-        $('frame-error-msg').textContent = 'Halaman tidak merespons dalam 30 detik.';
-    }, 30000);
-
-    frame.onload = function() {
-        clearTimeout(loadTimeout);
-        hide('frame-loading');
-        hide('frame-error');
-        frame.classList.remove('hidden');
-    };
-
-    frame.onerror = function() {
-        clearTimeout(loadTimeout);
-        hide('frame-loading');
-        show('frame-error');
-        $('frame-error-msg').textContent = 'Tidak dapat memuat halaman Odoo.';
-    };
-
-    frame.src = url;
-}
+/* ── Toolbar overlay (ditampilkan di atas Odoo) ─────────────────────────────── */
+// Toolbar tidak dipakai saat pakai window.location — diganti dengan back button handler
 
 /* ── Side Menu ──────────────────────────────────────────────────────────────── */
 function openMenu() {
@@ -272,8 +248,7 @@ function openMenu() {
     var overlay = $('side-menu-overlay');
     menu.classList.remove('hidden');
     overlay.classList.remove('hidden');
-    // Trigger reflow untuk animasi
-    menu.offsetHeight;
+    menu.offsetHeight; // reflow
     menu.classList.add('open');
     overlay.classList.add('open');
 }
@@ -289,192 +264,93 @@ function closeMenu() {
     }, 300);
 }
 
-/* ── Network check ──────────────────────────────────────────────────────────── */
-function checkNetwork() {
-    if (typeof navigator.connection !== 'undefined') {
-        App.isOnline = navigator.connection.type !== 'none';
-    } else {
-        App.isOnline = navigator.onLine !== false;
-    }
-    return App.isOnline;
-}
-
 /* ── Android back button ────────────────────────────────────────────────────── */
 function handleBackButton() {
-    var frame = $('odoo-frame');
-
-    // Jika side menu terbuka, tutup dulu
     if ($('side-menu').classList.contains('open')) {
-        closeMenu();
-        return;
+        closeMenu(); return;
     }
-
-    // Jika di halaman webview, coba navigasi back di frame
-    if (!$('page-webview').classList.contains('hidden')) {
-        try {
-            frame.contentWindow.history.back();
-        } catch(e) {
-            // Jika tidak bisa, tanya user
-            if (confirm('Keluar dari Odoo?')) {
-                showPage('page-connect');
-                renderSavedServers();
-            }
-        }
-        return;
-    }
-
-    // Jika di halaman database, kembali ke connect
     if (!$('page-database').classList.contains('hidden')) {
         showPage('page-connect');
-        renderSavedServers();
-        return;
+        renderSavedServers(); return;
     }
-
-    // Jika di halaman connect, keluar app
     if (typeof navigator.app !== 'undefined') {
         navigator.app.exitApp();
-    } else if (typeof navigator.device !== 'undefined') {
-        navigator.device.exitApp();
     }
 }
 
-/* ── Inisialisasi event listeners ───────────────────────────────────────────── */
-function initEvents() {
+/* ── Restore state jika kembali dari Odoo ───────────────────────────────────── */
+function restoreFromOdoo() {
+    // Jika user navigasi balik ke index.html dari Odoo
+    var raw = localStorage.getItem('wu_last_server');
+    if (raw) {
+        try {
+            var s = JSON.parse(raw);
+            App.host     = s.host;
+            App.protocol = s.protocol;
+            App.database = s.database;
+            App.baseUrl  = s.baseUrl;
+            $('input-host').value = s.host;
+            updateProtocolToggle();
+        } catch(e) {}
+    }
+}
 
-    // Protocol toggle
+/* ── Init events ────────────────────────────────────────────────────────────── */
+function initEvents() {
     $('btn-http').addEventListener('click', function() {
-        App.protocol = 'http';
-        updateProtocolToggle();
+        App.protocol = 'http'; updateProtocolToggle();
     });
     $('btn-https').addEventListener('click', function() {
-        App.protocol = 'https';
-        updateProtocolToggle();
+        App.protocol = 'https'; updateProtocolToggle();
     });
 
-    // Tombol sambungkan
     $('btn-connect').addEventListener('click', fetchDatabases);
-
-    // Enter di input host
     $('input-host').addEventListener('keydown', function(e) {
         if (e.key === 'Enter' || e.keyCode === 13) fetchDatabases();
     });
 
-    // Kembali dari halaman database
     $('btn-back-to-connect').addEventListener('click', function() {
-        showPage('page-connect');
-        renderSavedServers();
+        showPage('page-connect'); renderSavedServers();
     });
 
-    // Input database manual
     $('btn-db-manual-connect').addEventListener('click', function() {
         var dbName = $('input-dbname').value.trim();
         if (!dbName) {
             $('db-error').textContent = 'Masukkan nama database.';
-            show('db-error');
-            return;
+            show('db-error'); return;
         }
         App.database = dbName;
         saveServer(App.host, App.protocol, App.database);
         openOdoo();
     });
 
-    // Toolbar WebView
-    $('btn-menu').addEventListener('click', openMenu);
-    $('btn-reload').addEventListener('click', function() {
-        var frame = $('odoo-frame');
-        if (frame.src && frame.src !== 'about:blank') {
-            loadFrame(frame.src);
-        }
-    });
-
-    // Side menu items
-    $('btn-close-menu').addEventListener('click', closeMenu);
-    $('side-menu-overlay').addEventListener('click', closeMenu);
-
-    $('menu-home').addEventListener('click', function() {
-        closeMenu();
-        loadFrame(App.baseUrl + '/web?db=' + encodeURIComponent(App.database));
-    });
-    $('menu-reload').addEventListener('click', function() {
-        closeMenu();
-        var frame = $('odoo-frame');
-        if (frame.src && frame.src !== 'about:blank') loadFrame(frame.src);
-    });
-    $('menu-change-db').addEventListener('click', function() {
-        closeMenu();
-        fetchDatabases();
-    });
-    $('menu-change-server').addEventListener('click', function() {
-        closeMenu();
-        showPage('page-connect');
-        renderSavedServers();
-    });
-    $('menu-logout').addEventListener('click', function() {
-        closeMenu();
-        loadFrame(App.baseUrl + '/web/session/logout?db=' + encodeURIComponent(App.database));
-    });
-
-    // Frame error buttons
-    $('btn-frame-retry').addEventListener('click', function() {
-        loadFrame(App.baseUrl + '/web?db=' + encodeURIComponent(App.database));
-    });
-    $('btn-frame-back').addEventListener('click', function() {
-        showPage('page-connect');
-        renderSavedServers();
-    });
-
-    // Error page retry
     $('btn-error-retry').addEventListener('click', function() {
-        if (checkNetwork()) {
-            showPage('page-connect');
-            renderSavedServers();
-        }
+        showPage('page-connect'); renderSavedServers();
     });
 
-    // Network events
-    document.addEventListener('online',  function() { App.isOnline = true; });
-    document.addEventListener('offline', function() { App.isOnline = false; });
-
-    // Android back button (Cordova)
     document.addEventListener('backbutton', handleBackButton, false);
 }
 
-/* ── Splash screen ──────────────────────────────────────────────────────────── */
+/* ── Splash ─────────────────────────────────────────────────────────────────── */
 function hideSplash() {
     var splash = $('splash-screen');
     splash.classList.add('fade-out');
-    setTimeout(function() {
-        splash.classList.add('hidden');
-    }, 500);
-}
-
-/* ── Entry point ────────────────────────────────────────────────────────────── */
-function startApp() {
-    initEvents();
-    renderSavedServers();
-
-    // Cek apakah ada server terakhir yang tersimpan
-    loadSavedServers();
-    var last = App.savedServers[0];
-    if (last && last.host && last.database) {
-        // Auto-fill form dengan server terakhir
-        $('input-host').value = last.host;
-        App.protocol = last.protocol || 'http';
-        updateProtocolToggle();
-    }
-
-    showPage('page-connect');
-    hideSplash();
-
-    // Sembunyikan splash Cordova native jika ada
+    setTimeout(function() { splash.classList.add('hidden'); }, 500);
     if (typeof navigator.splashscreen !== 'undefined') {
         navigator.splashscreen.hide();
     }
 }
 
-/* ── Cordova device ready ───────────────────────────────────────────────────── */
+/* ── Start ──────────────────────────────────────────────────────────────────── */
+function startApp() {
+    initEvents();
+    restoreFromOdoo();
+    renderSavedServers();
+    showPage('page-connect');
+    hideSplash();
+}
+
 document.addEventListener('deviceready', function() {
-    // Cordova siap
     if (typeof StatusBar !== 'undefined') {
         StatusBar.backgroundColorByHexString('#714B67');
         StatusBar.styleLightContent();
@@ -482,7 +358,7 @@ document.addEventListener('deviceready', function() {
     startApp();
 }, false);
 
-/* ── Fallback untuk browser biasa (testing) ─────────────────────────────────── */
+// Fallback browser
 if (typeof cordova === 'undefined') {
     document.addEventListener('DOMContentLoaded', startApp);
 }
