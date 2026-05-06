@@ -1,7 +1,8 @@
 <?xml version='1.0' encoding='utf-8'?>
 <widget id="com.wuodoo.mobile" version="1.0.0"
     xmlns="http://www.w3.org/ns/widgets"
-    xmlns:cdv="http://cordova.apache.org/ns/1.0">
+    xmlns:cdv="http://cordova.apache.org/ns/1.0"
+    xmlns:android="http://schemas.android.com/apk/res/android">
 
     <name>WU Odoo</name>
     <description>WU Odoo Mobile Client</description>
@@ -34,14 +35,14 @@
     <preference name="StatusBarBackgroundColor" value="#714B67" />
     <preference name="StatusBarStyle"           value="lightcontent" />
 
+    <!-- Hook: inject HTTP cleartext config setelah setiap prepare/build -->
+    <hook type="after_prepare" src="scripts/android_cleartext.js" />
+
     <!-- Plugins -->
     <plugin name="cordova-plugin-statusbar"           spec="^3.0.0" />
     <plugin name="cordova-plugin-splashscreen"        spec="^6.0.0" />
     <plugin name="cordova-plugin-network-information" spec="^3.0.0" />
     <plugin name="cordova-plugin-inappbrowser"        spec="^5.0.0" />
-
-    <!-- Hook: inject HTTP cleartext config setelah setiap prepare/build -->
-    <hook type="after_prepare" src="scripts/android_cleartext.js" />
 
     <platform name="android">
         <allow-intent href="market:*" />
@@ -52,6 +53,14 @@
         <icon src="res/icon/android/icon-96.png"  density="xhdpi" />
         <icon src="res/icon/android/icon-72.png"  density="hdpi" />
         <icon src="res/icon/android/icon-48.png"  density="mdpi" />
+
+        <!-- Allow HTTP cleartext traffic (untuk akses server Odoo via HTTP) -->
+        <edit-config file="app/src/main/AndroidManifest.xml"
+                     mode="merge"
+                     target="/manifest/application">
+            <application android:usesCleartextTraffic="true" />
+        </edit-config>
+
     </platform>
 
 </widget>
