@@ -6,8 +6,7 @@
   "main": "index.js",
   "scripts": {
     "build:android": "cordova build android --release",
-    "build:android:debug": "cordova build android --debug",
-    "prepare": "cordova prepare android"
+    "build:android:debug": "cordova build android --debug"
   },
   "dependencies": {
     "cordova-plugin-inappbrowser": "^5.0.0",
