@@ -7,6 +7,9 @@ on:
     branches: [ main, master ]
   workflow_dispatch:
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 jobs:
   build:
     name: Build APK
@@ -20,7 +23,6 @@ jobs:
         uses: actions/checkout@v4
 
       # ── 2. Setup Java 17 ─────────────────────────────────────────────────────
-      # cordova-android@13 butuh Java 17, Gradle 8.x
       - name: Setup Java 17
         uses: actions/setup-java@v4
         with:
@@ -47,11 +49,11 @@ jobs:
             "platforms;android-34" \
             "build-tools;34.0.0"
 
-      # ── 5. Pin Gradle 8.7 (fix XmlParser error di Gradle 9) ─────────────────
-      # Gradle 9 menghapus XmlParser dari Groovy — cordova-android@13 butuh Gradle 8
+      # ── 5. Pin Gradle 8.7 ────────────────────────────────────────────────────
       - name: Install Gradle 8.7
         run: |
-          wget -q https://services.gradle.org/distributions/gradle-8.7-bin.zip -O /tmp/gradle.zip
+          wget -q https://services.gradle.org/distributions/gradle-8.7-bin.zip \
+               -O /tmp/gradle.zip
           unzip -q /tmp/gradle.zip -d /opt/gradle
           echo "/opt/gradle/gradle-8.7/bin" >> $GITHUB_PATH
           echo "GRADLE_HOME=/opt/gradle/gradle-8.7" >> $GITHUB_ENV
@@ -59,28 +61,21 @@ jobs:
       - name: Verify Gradle version
         run: gradle --version
 
-      # ── 6. Generate placeholder icons & splash ───────────────────────────────
+      # ── 6. Generate icons & splash via Python ────────────────────────────────
       - name: Generate icons and splash
         run: |
           mkdir -p res/icon/android res/screen/android
-          python3 - <<'EOF'
-          from PIL import Image, ImageDraw
-          import os
-
-          # Icons
-          sizes = [48, 72, 96, 144, 192]
+          python3 - <<'PYEOF'
+          from PIL import Image
           color = (113, 75, 103)
-          for size in sizes:
-              img = Image.new('RGB', (size, size), color)
-              d = ImageDraw.Draw(img)
-              img.save(f'res/icon/android/icon-{size}.png')
-              print(f'Generated icon-{size}.png')
-
-          # Splash 1280x1920
-          img = Image.new('RGB', (1280, 1920), color)
-          img.save('res/screen/android/splash.png')
-          print('Generated splash.png')
-          EOF
+          for size in [48, 72, 96, 144, 192]:
+              Image.new('RGB', (size, size), color).save(
+                  f'res/icon/android/icon-{size}.png')
+              print(f'icon-{size}.png OK')
+          Image.new('RGB', (1280, 1920), color).save(
+              'res/screen/android/splash.png')
+          print('splash.png OK')
+          PYEOF
 
       # ── 7. Install Cordova CLI ────────────────────────────────────────────────
       - name: Install Cordova CLI
@@ -90,24 +85,29 @@ jobs:
       - name: Install npm dependencies
         run: npm install
 
-      # ── 9. Add Android platform (cordova-android@13) ─────────────────────────
-      # cordova-android@13 = support Gradle 8, targetSdk 34, fix XmlParser
+      # ── 9. Add Android platform ──────────────────────────────────────────────
       - name: Add Android platform
         run: cordova platform add android@13
 
-      # ── 10. Install Cordova plugins ──────────────────────────────────────────
+      # ── 10. Verify cordova requirements ──────────────────────────────────────
+      - name: Check Cordova requirements
+        run: cordova requirements android || true
+
+      # ── 11. Install Cordova plugins ──────────────────────────────────────────
       - name: Install Cordova plugins
         run: |
-          cordova plugin add cordova-plugin-statusbar
-          cordova plugin add cordova-plugin-splashscreen
-          cordova plugin add cordova-plugin-network-information
-          cordova plugin add cordova-plugin-inappbrowser
+          cordova plugin add cordova-plugin-statusbar       --save
+          cordova plugin add cordova-plugin-splashscreen    --save
+          cordova plugin add cordova-plugin-network-information --save
+          cordova plugin add cordova-plugin-inappbrowser    --save
 
-      # ── 11. Build DEBUG APK ──────────────────────────────────────────────────
+      # ── 12. Build DEBUG APK ──────────────────────────────────────────────────
       - name: Build Debug APK
-        run: cordova build android --debug
+        run: cordova build android --debug -- --stacktrace
+        env:
+          GRADLE_OPTS: "-Dorg.gradle.daemon=false -Dorg.gradle.jvmargs=-Xmx2g"
 
-      # ── 12. Upload Debug APK ─────────────────────────────────────────────────
+      # ── 13. Upload Debug APK ─────────────────────────────────────────────────
       - name: Upload Debug APK
         uses: actions/upload-artifact@v4
         with:
@@ -115,9 +115,11 @@ jobs:
           path: platforms/android/app/build/outputs/apk/debug/app-debug.apk
           retention-days: 30
 
-      # ── 13. Build Release APK (unsigned) ─────────────────────────────────────
+      # ── 14. Build Release APK (unsigned) ─────────────────────────────────────
       - name: Build Release APK (unsigned)
-        run: cordova build android --release -- --packageType=apk
+        run: cordova build android --release -- --packageType=apk --stacktrace
+        env:
+          GRADLE_OPTS: "-Dorg.gradle.daemon=false -Dorg.gradle.jvmargs=-Xmx2g"
 
       - name: Upload Release APK (unsigned)
         uses: actions/upload-artifact@v4
@@ -126,7 +128,7 @@ jobs:
           path: platforms/android/app/build/outputs/apk/release/app-release-unsigned.apk
           retention-days: 30
 
-      # ── 14. Sign Release APK (opsional, butuh secrets) ───────────────────────
+      # ── 15. Sign Release APK (opsional, butuh secrets) ───────────────────────
       - name: Sign Release APK
         if: ${{ env.HAS_KEYSTORE == 'true' }}
         env:
