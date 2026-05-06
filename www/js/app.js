@@ -1,44 +1,71 @@
-/* ─────────────────────────────────────────────────────────────────────────────
-   WU Odoo Mobile Client — app.js
-   Alur: Splash → Koneksi → Pilih Database → WebView Odoo (window.location)
-───────────────────────────────────────────────────────────────────────────── */
 'use strict';
 
 var App = {
-    protocol:     'http',
-    host:         '',
-    database:     '',
-    baseUrl:      '',
-    odooUrl:      '',
-    savedServers: [],
-    inOdoo:       false,
+    protocol: 'http', host: '', database: '',
+    baseUrl: '', odooUrl: '', savedServers: [], inOdoo: false,
 };
 
-/* ── DOM helpers ────────────────────────────────────────────────────────────── */
-function $(id)   { return document.getElementById(id); }
-function show(id){ $(id).classList.remove('hidden'); }
-function hide(id){ $(id).classList.add('hidden'); }
+function $(id)    { return document.getElementById(id); }
+function show(id) { $(id).classList.remove('hidden'); }
+function hide(id) { $(id).classList.add('hidden'); }
 
 function showPage(name) {
-    ['page-connect','page-database','page-error'].forEach(function(p){
+    ['page-connect','page-database','page-error'].forEach(function(p) {
         var el = document.getElementById(p);
         if (el) el.classList.add('hidden');
     });
-    var target = document.getElementById(name);
-    if (target) target.classList.remove('hidden');
+    var t = document.getElementById(name);
+    if (t) t.classList.remove('hidden');
 }
 
-/* ── Storage ────────────────────────────────────────────────────────────────── */
+function escHtml(str) {
+    return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;')
+        .replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+function buildBaseUrl(protocol, host) {
+    host = host.trim().replace(/\/+$/, '');
+    if (!host) return '';
+    if (/^https?:\/\//i.test(host)) return host;
+    return protocol + '://' + host;
+}
+
+function isCordovaReal() {
+    return typeof cordova !== 'undefined' && cordova.version !== 'stub-browser';
+}
+
+function proxyUrl(targetUrl) {
+    return isCordovaReal() ? targetUrl : ('/proxy?url=' + encodeURIComponent(targetUrl));
+}
+
+function updateProtocolToggle() {
+    $('btn-http').classList.toggle('active',  App.protocol === 'http');
+    $('btn-https').classList.toggle('active', App.protocol === 'https');
+}
+
+function setConnectLoading(on) {
+    var btn = $('btn-connect');
+    btn.disabled = on;
+    btn.querySelector('.btn-text').classList.toggle('hidden', on);
+    btn.querySelector('.btn-loader').classList.toggle('hidden', !on);
+}
+
+function showConnectError(msg) {
+    var el = $('connect-error');
+    el.textContent = msg;
+    el.classList.remove('hidden');
+}
+function hideConnectError() { $('connect-error').classList.add('hidden'); }
+
+/* ── Storage ─────────────────────────────────────────────────────────────────── */
 function loadSavedServers() {
-    try {
-        var raw = localStorage.getItem('wu_saved_servers');
-        App.savedServers = raw ? JSON.parse(raw) : [];
-    } catch(e) { App.savedServers = []; }
+    try { App.savedServers = JSON.parse(localStorage.getItem('wu_saved_servers') || '[]'); }
+    catch(e) { App.savedServers = []; }
 }
 
 function saveServer(host, protocol, database) {
     loadSavedServers();
-    App.savedServers = App.savedServers.filter(function(s){
+    App.savedServers = App.savedServers.filter(function(s) {
         return !(s.host === host && s.protocol === protocol);
     });
     App.savedServers.unshift({ host: host, protocol: protocol, database: database, ts: Date.now() });
@@ -73,15 +100,12 @@ function renderSavedServers() {
             App.protocol = s.protocol || 'http';
             updateProtocolToggle();
             if (s.database) {
-                App.host     = s.host;
-                App.database = s.database;
-                App.baseUrl  = s.protocol + '://' + s.host;
+                App.host = s.host; App.database = s.database;
+                App.baseUrl = s.protocol + '://' + s.host;
                 openOdoo();
-            } else {
-                fetchDatabases();
-            }
+            } else { fetchDatabases(); }
         });
-        item.querySelector('.saved-server-delete').addEventListener('click', function(e){
+        item.querySelector('.saved-server-delete').addEventListener('click', function(e) {
             e.stopPropagation();
             deleteServer(parseInt(this.dataset.idx));
         });
@@ -89,66 +113,11 @@ function renderSavedServers() {
     });
 }
 
-/* ── Helpers ────────────────────────────────────────────────────────────────── */
-function escHtml(str) {
-    return String(str)
-        .replace(/&/g,'&amp;').replace(/</g,'&lt;')
-        .replace(/>/g,'&gt;').replace(/"/g,'&quot;');
-}
-
-function buildBaseUrl(protocol, host) {
-    host = host.trim().replace(/\/+$/, '');
-    if (!host) return '';
-    // Jika user sudah ketik http:// atau https://, pakai apa adanya
-    if (/^https?:\/\//i.test(host)) return host;
-    return protocol + '://' + host;
-}
-
-/**
- * Saat di browser (testing), XHR ke server Odoo kena CORS.
- * Gunakan proxy lokal /proxy?url=... untuk bypass.
- * Di APK Cordova tidak ada CORS — pakai URL langsung.
- */
-function proxyUrl(targetUrl) {
-    var isCordova = typeof cordova !== 'undefined' && cordova.version !== 'stub-browser';
-    if (isCordova) return targetUrl;
-    return '/proxy?url=' + encodeURIComponent(targetUrl);
-}
-
-function updateProtocolToggle() {
-    $('btn-http').classList.toggle('active',  App.protocol === 'http');
-    $('btn-https').classList.toggle('active', App.protocol === 'https');
-}
-
-function setConnectLoading(on) {
-    var btn = $('btn-connect');
-    btn.disabled = on;
-    btn.querySelector('.btn-text').classList.toggle('hidden', on);
-    btn.querySelector('.btn-loader').classList.toggle('hidden', !on);
-}
-
-function showConnectError(msg) {
-    var el = $('connect-error');
-    el.textContent = msg;
-    el.classList.remove('hidden');
-}
-function hideConnectError() { $('connect-error').classList.add('hidden'); }
-
-/* ── Fetch database list ────────────────────────────────────────────────────── */
-function fetchDatabases() {
-    var host = $('input-host').value.trim();
-    if (!host) { showConnectError('Masukkan alamat server terlebih dahulu.'); return; }
-
-    hideConnectError();
-    setConnectLoading(true);
-
-    App.host    = host;
-    App.baseUrl = buildBaseUrl(App.protocol, host);
-
+/* ── Fetch database list ─────────────────────────────────────────────────────── */
 function fetchDatabases() {
     console.log('fetchDatabases() called');
     var host = $('input-host').value.trim();
-    console.log('host value: [' + host + ']');
+    console.log('host=[' + host + '] protocol=' + App.protocol);
     if (!host) { showConnectError('Masukkan alamat server terlebih dahulu.'); return; }
 
     hideConnectError();
@@ -157,12 +126,12 @@ function fetchDatabases() {
     App.host    = host;
     App.baseUrl = buildBaseUrl(App.protocol, host);
 
-    var isCordovaReal = typeof cordova !== 'undefined' && cordova.version !== 'stub-browser';
     var targetUrl = App.baseUrl + '/web/database/list';
-    var url       = isCordovaReal ? targetUrl : ('/proxy?url=' + encodeURIComponent(targetUrl));
+    var url       = proxyUrl(targetUrl);
 
-    console.log('isCordova: ' + isCordovaReal);
-    console.log('url: ' + url);
+    console.log('isCordovaReal=' + isCordovaReal());
+    console.log('targetUrl=' + targetUrl);
+    console.log('url=' + url);
 
     var xhr = new XMLHttpRequest();
     xhr.open('POST', url, true);
@@ -170,24 +139,25 @@ function fetchDatabases() {
     xhr.timeout = 15000;
 
     xhr.onreadystatechange = function() {
-        console.log('readyState=' + xhr.readyState + (xhr.readyState===4?' status='+xhr.status:''));
+        console.log('readyState=' + xhr.readyState +
+            (xhr.readyState === 4 ? ' status=' + xhr.status : ''));
     };
 
     xhr.onload = function() {
-        console.log('onload status=' + xhr.status + ' resp=' + xhr.responseText.substr(0,100));
+        console.log('onload status=' + xhr.status);
         setConnectLoading(false);
         if (xhr.status >= 200 && xhr.status < 300) {
             try {
                 var resp = JSON.parse(xhr.responseText);
                 var dbs  = resp.result || [];
-                console.log('dbs: ' + JSON.stringify(dbs));
+                console.log('dbs=' + JSON.stringify(dbs));
                 showDatabasePage(dbs);
             } catch(e) {
-                console.warn('parse error: ' + e + ' — showing manual');
+                console.warn('JSON parse error: ' + e + ' — manual input');
                 showDatabasePage([]);
             }
         } else if (xhr.status === 403 || xhr.status === 404) {
-            console.warn('403/404 — showing manual');
+            console.warn('403/404 — manual input');
             showDatabasePage([]);
         } else {
             showConnectError('Server error ' + xhr.status);
@@ -195,19 +165,17 @@ function fetchDatabases() {
     };
 
     xhr.onerror = function() {
-        console.error('onerror! url=' + url + ' readyState=' + xhr.readyState);
+        console.error('XHR onerror! url=' + url);
         setConnectLoading(false);
         showConnectError(
             'Tidak dapat terhubung ke:\n' + App.baseUrl +
-            '\n\nPastikan:\n' +
-            '• Port benar (contoh: 157.230.247.220:8069)\n' +
-            '• Server Odoo berjalan\n' +
-            '• Koneksi internet aktif'
+            '\n\nPastikan:\n• Port benar (contoh: 157.230.247.220:8069)\n' +
+            '• Server Odoo berjalan\n• Koneksi internet aktif'
         );
     };
 
     xhr.ontimeout = function() {
-        console.error('ontimeout! url=' + url);
+        console.error('XHR timeout! url=' + url);
         setConnectLoading(false);
         showConnectError('Timeout 15 detik. Coba: ' + host + ':8069');
     };
@@ -216,13 +184,10 @@ function fetchDatabases() {
     xhr.send(JSON.stringify({ jsonrpc: '2.0', method: 'call', params: {} }));
 }
 
-/* ── Halaman pilih database ─────────────────────────────────────────────────── */
+/* ── Database page ───────────────────────────────────────────────────────────── */
 function showDatabasePage(dbs) {
     $('db-server-label').textContent = App.baseUrl;
-    hide('db-loading');
-    hide('db-error');
-    hide('db-list');
-    hide('db-manual');
+    hide('db-loading'); hide('db-error'); hide('db-list'); hide('db-manual');
 
     var list = $('db-list');
     list.innerHTML = '';
@@ -248,95 +213,68 @@ function showDatabasePage(dbs) {
         list.appendChild(item);
     });
 
-    var manualToggle = document.createElement('div');
-    manualToggle.className = 'db-manual-toggle';
-    manualToggle.textContent = 'Masukkan nama database secara manual';
-    manualToggle.addEventListener('click', function() {
-        hide('db-list');
-        show('db-manual');
-    });
-    list.appendChild(manualToggle);
+    var mt = document.createElement('div');
+    mt.className = 'db-manual-toggle';
+    mt.textContent = 'Masukkan nama database secara manual';
+    mt.addEventListener('click', function() { hide('db-list'); show('db-manual'); });
+    list.appendChild(mt);
 
     show('db-list');
     showPage('page-database');
 }
 
-/* ── Buka Odoo — GANTI window.location, bukan iframe ───────────────────────── */
+/* ── Open Odoo ───────────────────────────────────────────────────────────────── */
 function openOdoo() {
     App.odooUrl = App.baseUrl + '/web?db=' + encodeURIComponent(App.database);
     App.inOdoo  = true;
-
-    // Simpan state ke localStorage agar bisa kembali ke app setelah navigasi
-    localStorage.setItem('wu_last_server',   JSON.stringify({
+    localStorage.setItem('wu_last_server', JSON.stringify({
         host: App.host, protocol: App.protocol,
         database: App.database, baseUrl: App.baseUrl
     }));
-
-    // Navigasi langsung — WebView Cordova akan render Odoo di window ini
+    console.log('openOdoo → ' + App.odooUrl);
     window.location.href = App.odooUrl;
 }
 
-/* ── Toolbar overlay (ditampilkan di atas Odoo) ─────────────────────────────── */
-// Toolbar tidak dipakai saat pakai window.location — diganti dengan back button handler
-
-/* ── Side Menu ──────────────────────────────────────────────────────────────── */
+/* ── Side Menu ───────────────────────────────────────────────────────────────── */
 function openMenu() {
-    var menu    = $('side-menu');
-    var overlay = $('side-menu-overlay');
-    menu.classList.remove('hidden');
-    overlay.classList.remove('hidden');
-    menu.offsetHeight; // reflow
-    menu.classList.add('open');
-    overlay.classList.add('open');
+    var m = $('side-menu'), o = $('side-menu-overlay');
+    m.classList.remove('hidden'); o.classList.remove('hidden');
+    m.offsetHeight;
+    m.classList.add('open'); o.classList.add('open');
 }
-
 function closeMenu() {
-    var menu    = $('side-menu');
-    var overlay = $('side-menu-overlay');
-    menu.classList.remove('open');
-    overlay.classList.remove('open');
-    setTimeout(function() {
-        menu.classList.add('hidden');
-        overlay.classList.add('hidden');
-    }, 300);
+    var m = $('side-menu'), o = $('side-menu-overlay');
+    m.classList.remove('open'); o.classList.remove('open');
+    setTimeout(function() { m.classList.add('hidden'); o.classList.add('hidden'); }, 300);
 }
 
-/* ── Android back button ────────────────────────────────────────────────────── */
+/* ── Back button ─────────────────────────────────────────────────────────────── */
 function handleBackButton() {
-    if ($('side-menu').classList.contains('open')) {
-        closeMenu(); return;
-    }
+    if ($('side-menu').classList.contains('open')) { closeMenu(); return; }
     if (!$('page-database').classList.contains('hidden')) {
-        showPage('page-connect');
-        renderSavedServers(); return;
+        showPage('page-connect'); renderSavedServers(); return;
     }
-    if (typeof navigator.app !== 'undefined') {
-        navigator.app.exitApp();
-    }
+    if (typeof navigator.app !== 'undefined') navigator.app.exitApp();
 }
 
-/* ── Restore state jika kembali dari Odoo ───────────────────────────────────── */
+/* ── Restore from Odoo ───────────────────────────────────────────────────────── */
 function restoreFromOdoo() {
-    // Jika user navigasi balik ke index.html dari Odoo
     var raw = localStorage.getItem('wu_last_server');
-    if (raw) {
-        try {
-            var s = JSON.parse(raw);
-            App.host     = s.host;
-            App.protocol = s.protocol;
-            App.database = s.database;
-            App.baseUrl  = s.baseUrl;
-            $('input-host').value = s.host;
-            updateProtocolToggle();
-        } catch(e) {}
-    }
+    if (!raw) return;
+    try {
+        var s = JSON.parse(raw);
+        App.host = s.host; App.protocol = s.protocol;
+        App.database = s.database; App.baseUrl = s.baseUrl;
+        $('input-host').value = s.host;
+        updateProtocolToggle();
+    } catch(e) {}
 }
 
-/* ── Init events ────────────────────────────────────────────────────────────── */
+/* ── Init events ─────────────────────────────────────────────────────────────── */
 function initEvents() {
     console.log('initEvents() start');
-    console.log('btn-connect el: ' + ($('btn-connect') ? 'FOUND' : 'NULL'));
-    console.log('input-host el: '  + ($('input-host')  ? 'FOUND' : 'NULL'));
+    console.log('btn-connect=' + ($('btn-connect') ? 'OK' : 'NULL'));
+    console.log('input-host='  + ($('input-host')  ? 'OK' : 'NULL'));
 
     $('btn-http').addEventListener('click', function() {
         App.protocol = 'http'; updateProtocolToggle();
@@ -344,104 +282,80 @@ function initEvents() {
     $('btn-https').addEventListener('click', function() {
         App.protocol = 'https'; updateProtocolToggle();
     });
-
     $('btn-connect').addEventListener('click', function() {
-        console.log('btn-connect addEventListener fired');
+        console.log('btn-connect clicked');
         fetchDatabases();
     });
     $('input-host').addEventListener('keydown', function(e) {
         if (e.key === 'Enter' || e.keyCode === 13) fetchDatabases();
     });
-
     $('btn-back-to-connect').addEventListener('click', function() {
         showPage('page-connect'); renderSavedServers();
     });
-
     $('btn-db-manual-connect').addEventListener('click', function() {
         var dbName = $('input-dbname').value.trim();
-        if (!dbName) {
-            $('db-error').textContent = 'Masukkan nama database.';
-            show('db-error'); return;
-        }
+        if (!dbName) { $('db-error').textContent = 'Masukkan nama database.'; show('db-error'); return; }
         App.database = dbName;
         saveServer(App.host, App.protocol, App.database);
         openOdoo();
     });
-
     $('btn-error-retry').addEventListener('click', function() {
         showPage('page-connect'); renderSavedServers();
     });
-
     document.addEventListener('backbutton', handleBackButton, false);
+    console.log('initEvents() done');
 }
 
-/* ── Splash ─────────────────────────────────────────────────────────────────── */
+/* ── Splash ──────────────────────────────────────────────────────────────────── */
 function hideSplash() {
-    var splash = $('splash-screen');
-    splash.classList.add('fade-out');
-    setTimeout(function() { splash.classList.add('hidden'); }, 500);
-    if (typeof navigator.splashscreen !== 'undefined') {
-        navigator.splashscreen.hide();
-    }
+    var s = $('splash-screen');
+    s.classList.add('fade-out');
+    setTimeout(function() { s.classList.add('hidden'); }, 500);
+    if (typeof navigator.splashscreen !== 'undefined') navigator.splashscreen.hide();
 }
 
-/* ── Start ──────────────────────────────────────────────────────────────────── */
+/* ── Start ───────────────────────────────────────────────────────────────────── */
 function startApp() {
     console.log('startApp() running...');
     try {
         initEvents();
-        console.log('initEvents OK');
         restoreFromOdoo();
-        console.log('restoreFromOdoo OK');
         renderSavedServers();
-        console.log('renderSavedServers OK');
         showPage('page-connect');
-        console.log('showPage page-connect OK');
         hideSplash();
-        console.log('hideSplash OK — app ready');
+        console.log('app ready ✓');
     } catch(e) {
-        console.error('startApp ERROR: ' + e.message + ' | ' + e.stack);
+        console.error('startApp ERROR: ' + e.message + '\n' + e.stack);
     }
 }
 
+/* ── Cordova deviceready ─────────────────────────────────────────────────────── */
 document.addEventListener('deviceready', function() {
-    console.log('deviceready handler called');
+    console.log('deviceready fired');
     try {
         if (typeof StatusBar !== 'undefined') {
             StatusBar.backgroundColorByHexString('#714B67');
             StatusBar.styleLightContent();
-            console.log('StatusBar configured');
-        } else {
-            console.warn('StatusBar plugin not available');
         }
-    } catch(e) { console.error('StatusBar error: ' + e); }
+    } catch(e) { console.warn('StatusBar: ' + e); }
     startApp();
 }, false);
 
-// Fallback 1: DOMContentLoaded untuk browser biasa
+/* ── Fallback ────────────────────────────────────────────────────────────────── */
 if (typeof cordova === 'undefined') {
-    console.log('cordova not found — using DOMContentLoaded fallback');
     document.addEventListener('DOMContentLoaded', startApp);
 }
 
-// Fallback 2: Timeout — jika deviceready tidak fired
 var _started = false;
 var _origStart = startApp;
 startApp = function() {
     if (_started) return;
     _started = true;
-    console.log('startApp() called, _started=true');
     _origStart();
 };
 setTimeout(function() {
-    if (!_started) {
-        console.warn('5s timeout — deviceready never fired, forcing startApp');
-        startApp();
-    }
+    if (!_started) { console.warn('5s timeout — forcing startApp'); startApp(); }
 }, 5000);
 setTimeout(function() {
-    if (!_started) {
-        console.error('10s timeout — still not started! cordova=' + (typeof cordova));
-        startApp();
-    }
+    if (!_started) { console.error('10s timeout — still not started'); startApp(); }
 }, 10000);
