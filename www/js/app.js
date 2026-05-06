@@ -358,7 +358,23 @@ document.addEventListener('deviceready', function() {
     startApp();
 }, false);
 
-// Fallback browser
+// Fallback 1: DOMContentLoaded untuk browser biasa
 if (typeof cordova === 'undefined') {
     document.addEventListener('DOMContentLoaded', startApp);
 }
+
+// Fallback 2: Timeout 5 detik — jika deviceready tidak fired sama sekali
+// (terjadi di beberapa device/build tertentu)
+var _started = false;
+var _origStart = startApp;
+startApp = function() {
+    if (_started) return;
+    _started = true;
+    _origStart();
+};
+setTimeout(function() {
+    if (!_started) {
+        console.warn('deviceready timeout — forcing startApp');
+        startApp();
+    }
+}, 5000);
