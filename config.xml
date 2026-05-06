@@ -1,0 +1,55 @@
+<?xml version='1.0' encoding='utf-8'?>
+<widget id="com.wuodoo.mobile" version="1.0.0"
+    xmlns="http://www.w3.org/ns/widgets"
+    xmlns:cdv="http://cordova.apache.org/ns/1.0">
+
+    <name>WU Odoo</name>
+    <description>WU Odoo Mobile Client</description>
+    <author email="admin@wuodoo.com" href="https://wuodoo.com">WU Odoo</author>
+
+    <content src="index.html" />
+
+    <access origin="*" />
+    <allow-intent href="http://*/*" />
+    <allow-intent href="https://*/*" />
+    <allow-navigation href="*" />
+
+    <preference name="DisallowOverscroll" value="true" />
+    <preference name="android-minSdkVersion" value="22" />
+    <preference name="android-targetSdkVersion" value="34" />
+    <preference name="AndroidWindowSplashScreenAnimatedIcon" value="res/screen/android/splash.png" />
+    <preference name="SplashScreenDelay" value="2000" />
+    <preference name="AutoHideSplashScreen" value="true" />
+    <preference name="BackgroundColor" value="0xff714B67" />
+    <preference name="StatusBarBackgroundColor" value="#714B67" />
+    <preference name="StatusBarStyle" value="lightcontent" />
+    <preference name="Orientation" value="default" />
+    <preference name="KeepRunning" value="true" />
+    <preference name="LoadUrlTimeoutValue" value="30000" />
+    <preference name="ErrorUrl" value="error.html" />
+
+    <!-- Cordova plugins -->
+    <plugin name="cordova-plugin-whitelist" spec="^1.3.4" />
+    <plugin name="cordova-plugin-statusbar" spec="^3.0.0" />
+    <plugin name="cordova-plugin-splashscreen" spec="^6.0.0" />
+    <plugin name="cordova-plugin-network-information" spec="^3.0.0" />
+    <plugin name="cordova-plugin-inappbrowser" spec="^5.0.0" />
+
+    <platform name="android">
+        <allow-intent href="market:*" />
+        <icon src="res/icon/android/icon-192.png" density="xxxhdpi" />
+        <icon src="res/icon/android/icon-144.png" density="xxhdpi" />
+        <icon src="res/icon/android/icon-96.png"  density="xhdpi" />
+        <icon src="res/icon/android/icon-72.png"  density="hdpi" />
+        <icon src="res/icon/android/icon-48.png"  density="mdpi" />
+        <splash src="res/screen/android/splash.png" density="port-xxxhdpi" />
+        <splash src="res/screen/android/splash.png" density="port-xxhdpi" />
+        <splash src="res/screen/android/splash.png" density="port-xhdpi" />
+        <splash src="res/screen/android/splash.png" density="port-hdpi" />
+        <splash src="res/screen/android/splash.png" density="port-mdpi" />
+        <edit-config file="app/src/main/AndroidManifest.xml" mode="merge" target="/manifest/application">
+            <application android:usesCleartextTraffic="true" />
+        </edit-config>
+    </platform>
+
+</widget>

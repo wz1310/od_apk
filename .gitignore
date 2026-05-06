@@ -1,0 +1,8 @@
+node_modules/
+platforms/
+plugins/
+package-lock.json
+*.keystore
+*.jks
+.DS_Store
+Thumbs.db

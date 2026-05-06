@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <meta http-equiv="Content-Security-Policy"
+          content="default-src * 'unsafe-inline' 'unsafe-eval' data: blob:;" />
+    <title>WU Odoo</title>
+    <link rel="stylesheet" href="css/app.css" />
+</head>
+<body>
+
+    <!-- ── SPLASH SCREEN ─────────────────────────────────────── -->
+    <div id="splash-screen">
+        <div class="splash-logo">
+            <svg viewBox="0 0 120 120" xmlns="http://www.w3.org/2000/svg">
+                <circle cx="60" cy="60" r="55" fill="#714B67"/>
+                <text x="50%" y="54%" dominant-baseline="middle"
+                      text-anchor="middle" fill="#fff"
+                      font-size="28" font-family="Arial,sans-serif" font-weight="bold">WU</text>
+                <text x="50%" y="72%" dominant-baseline="middle"
+                      text-anchor="middle" fill="#e8d5e0"
+                      font-size="13" font-family="Arial,sans-serif">Odoo</text>
+            </svg>
+        </div>
+        <div class="splash-title">WU Odoo</div>
+        <div class="splash-subtitle">Mobile Client</div>
+        <div class="splash-loader"><div class="loader-bar"></div></div>
+    </div>
+
+    <!-- ── HALAMAN KONEKSI (input host) ──────────────────────── -->
+    <div id="page-connect" class="page hidden">
+        <div class="page-header">
+            <div class="app-logo-small">
+                <svg viewBox="0 0 60 60" xmlns="http://www.w3.org/2000/svg">
+                    <circle cx="30" cy="30" r="28" fill="#714B67"/>
+                    <text x="50%" y="55%" dominant-baseline="middle"
+                          text-anchor="middle" fill="#fff"
+                          font-size="16" font-family="Arial,sans-serif" font-weight="bold">WU</text>
+                </svg>
+            </div>
+            <h1>WU Odoo</h1>
+            <p class="subtitle">Masukkan alamat server Odoo Anda</p>
+        </div>
+
+        <div class="form-card">
+            <div class="form-group">
+                <label for="input-host">Alamat Server</label>
+                <div class="input-with-icon">
+                    <span class="input-icon">🌐</span>
+                    <input type="text" id="input-host"
+                           placeholder="contoh: 192.168.1.10:8069"
+                           autocomplete="off" autocorrect="off"
+                           autocapitalize="none" spellcheck="false" />
+                </div>
+                <div class="input-hint">IP, hostname, atau domain (dengan port jika perlu)</div>
+            </div>
+
+            <div class="protocol-toggle">
+                <span class="toggle-label">Protokol:</span>
+                <div class="toggle-group">
+                    <button id="btn-http"  class="toggle-btn active" data-proto="http">HTTP</button>
+                    <button id="btn-https" class="toggle-btn"        data-proto="https">HTTPS</button>
+                </div>
+            </div>
+
+            <div id="connect-error" class="error-msg hidden"></div>
+
+            <button id="btn-connect" class="btn-primary">
+                <span class="btn-text">Sambungkan</span>
+                <span class="btn-loader hidden">⏳</span>
+            </button>
+
+            <div class="saved-servers-section" id="saved-servers-section">
+                <div class="section-title">Server Tersimpan</div>
+                <div id="saved-servers-list"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ── HALAMAN PILIH DATABASE ─────────────────────────────── -->
+    <div id="page-database" class="page hidden">
+        <div class="page-header">
+            <button id="btn-back-to-connect" class="btn-back">← Kembali</button>
+            <h2>Pilih Database</h2>
+            <p class="subtitle" id="db-server-label"></p>
+        </div>
+
+        <div class="form-card">
+            <div id="db-loading" class="loading-state">
+                <div class="spinner"></div>
+                <p>Mengambil daftar database...</p>
+            </div>
+
+            <div id="db-error" class="error-msg hidden"></div>
+
+            <div id="db-list" class="db-list hidden"></div>
+
+            <div id="db-manual" class="form-group hidden">
+                <label for="input-dbname">Nama Database</label>
+                <input type="text" id="input-dbname"
+                       placeholder="Masukkan nama database"
+                       autocomplete="off" autocapitalize="none" />
+                <button id="btn-db-manual-connect" class="btn-primary" style="margin-top:12px">
+                    Lanjutkan
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ── HALAMAN WEBVIEW (Odoo) ─────────────────────────────── -->
+    <div id="page-webview" class="page hidden">
+        <div id="webview-toolbar">
+            <button id="btn-menu" class="toolbar-btn" title="Menu">☰</button>
+            <div id="webview-url-bar">
+                <span id="webview-server-name"></span>
+            </div>
+            <button id="btn-reload" class="toolbar-btn" title="Reload">↻</button>
+        </div>
+
+        <div id="webview-container">
+            <iframe id="odoo-frame"
+                    src="about:blank"
+                    allow="fullscreen"
+                    sandbox="allow-same-origin allow-scripts allow-forms allow-popups allow-modals allow-top-navigation">
+            </iframe>
+            <div id="frame-loading" class="frame-loading hidden">
+                <div class="spinner"></div>
+                <p>Memuat Odoo...</p>
+            </div>
+            <div id="frame-error" class="frame-error hidden">
+                <div class="error-icon">⚠️</div>
+                <h3>Tidak dapat terhubung</h3>
+                <p id="frame-error-msg"></p>
+                <button id="btn-frame-retry" class="btn-primary">Coba Lagi</button>
+                <button id="btn-frame-back"  class="btn-secondary">Ganti Server</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ── SIDE MENU ──────────────────────────────────────────── -->
+    <div id="side-menu" class="side-menu hidden">
+        <div class="side-menu-header">
+            <div class="side-menu-logo">
+                <svg viewBox="0 0 60 60" xmlns="http://www.w3.org/2000/svg">
+                    <circle cx="30" cy="30" r="28" fill="#714B67"/>
+                    <text x="50%" y="55%" dominant-baseline="middle"
+                          text-anchor="middle" fill="#fff"
+                          font-size="16" font-family="Arial,sans-serif" font-weight="bold">WU</text>
+                </svg>
+            </div>
+            <div>
+                <div class="side-menu-title">WU Odoo</div>
+                <div id="side-menu-server" class="side-menu-server"></div>
+            </div>
+            <button id="btn-close-menu" class="btn-close-menu">✕</button>
+        </div>
+        <div class="side-menu-items">
+            <button class="menu-item" id="menu-home">🏠 Beranda Odoo</button>
+            <button class="menu-item" id="menu-reload">↻ Muat Ulang</button>
+            <button class="menu-item" id="menu-change-db">🗄️ Ganti Database</button>
+            <button class="menu-item" id="menu-change-server">🌐 Ganti Server</button>
+            <div class="menu-divider"></div>
+            <button class="menu-item menu-item-danger" id="menu-logout">🚪 Logout</button>
+        </div>
+    </div>
+    <div id="side-menu-overlay" class="side-menu-overlay hidden"></div>
+
+    <!-- ── ERROR PAGE ─────────────────────────────────────────── -->
+    <div id="page-error" class="page hidden">
+        <div class="error-full">
+            <div class="error-icon-big">📡</div>
+            <h2>Tidak Ada Koneksi</h2>
+            <p>Periksa koneksi internet atau jaringan lokal Anda.</p>
+            <button id="btn-error-retry" class="btn-primary">Coba Lagi</button>
+        </div>
+    </div>
+
+    <script src="js/app.js"></script>
+</body>
+</html>
