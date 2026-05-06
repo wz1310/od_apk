@@ -35,7 +35,9 @@ function isCordovaReal() {
 }
 
 function proxyUrl(targetUrl) {
-    return isCordovaReal() ? targetUrl : ('/proxy?url=' + encodeURIComponent(targetUrl));
+    // Selalu pakai URL langsung — proxy hanya untuk browser dev via cordova.js stub
+    // cordova.js stub sudah intercept XHR dan route ke /proxy otomatis
+    return targetUrl;
 }
 
 function updateProtocolToggle() {
