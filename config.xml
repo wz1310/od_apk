@@ -44,6 +44,8 @@
     <plugin name="cordova-plugin-splashscreen"        spec="^6.0.0" />
     <plugin name="cordova-plugin-network-information" spec="^3.0.0" />
     <plugin name="cordova-plugin-inappbrowser"        spec="^5.0.0" />
+    <plugin name="cordova-plugin-file"                spec="^8.0.0" />
+    <plugin name="cordova-plugin-file-transfer"       spec="^2.0.0" />
 
     <platform name="android">
         <allow-intent href="market:*" />
@@ -61,6 +63,11 @@
                      target="/manifest/application">
             <application android:usesCleartextTraffic="true" />
         </edit-config>
+
+        <!-- Permission untuk download file ke storage -->
+        <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />
+        <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE"
+                         android:maxSdkVersion="28" />
 
     </platform>
 

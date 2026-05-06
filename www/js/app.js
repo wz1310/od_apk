@@ -334,10 +334,184 @@ function startApp() {
         renderSavedServers();
         showPage('page-connect');
         hideSplash();
+        setupDownloadInterceptor();
         console.log('app ready ✓');
     } catch(e) {
         console.error('startApp ERROR: ' + e.message + '\n' + e.stack);
     }
+}
+
+/* ── Download Manager ────────────────────────────────────────────────────────
+ * Menangkap URL download dari Odoo (PDF, Excel, CSV, dll) dan menyimpan
+ * ke folder Downloads di local storage HP menggunakan cordova-plugin-file
+ * dan cordova-plugin-file-transfer.
+ * --------------------------------------------------------------------------- */
+
+// Ekstensi / pola URL yang dianggap sebagai file download
+var DOWNLOAD_EXTENSIONS = /\.(pdf|xlsx|xls|csv|docx|doc|zip|png|jpg|jpeg|gif|txt|ods|odt|pptx|ppt)(\?|$)/i;
+var DOWNLOAD_URL_PATTERNS = [
+    /\/web\/content\//i,
+    /\/report\/pdf\//i,
+    /\/report\/xlsx\//i,
+    /\/report\/download/i,
+    /\/web\/binary\//i,
+    /download=true/i,
+    /\/document\/download/i,
+];
+
+function isDownloadUrl(url) {
+    if (!url) return false;
+    if (DOWNLOAD_EXTENSIONS.test(url)) return true;
+    for (var i = 0; i < DOWNLOAD_URL_PATTERNS.length; i++) {
+        if (DOWNLOAD_URL_PATTERNS[i].test(url)) return true;
+    }
+    return false;
+}
+
+function getFilenameFromUrl(url) {
+    try {
+        var fnMatch = url.match(/[?&]filename=([^&]+)/i) ||
+                      url.match(/[?&]name=([^&]+)/i);
+        if (fnMatch) return decodeURIComponent(fnMatch[1]);
+        var path = url.split('?')[0];
+        var parts = path.split('/');
+        var last = parts[parts.length - 1];
+        if (last && last.indexOf('.') !== -1) return decodeURIComponent(last);
+        return 'odoo_download_' + Date.now() + '.bin';
+    } catch(e) {
+        return 'odoo_download_' + Date.now() + '.bin';
+    }
+}
+
+function showDownloadToast(msg, isError) {
+    var toast = document.getElementById('download-toast');
+    if (!toast) {
+        toast = document.createElement('div');
+        toast.id = 'download-toast';
+        toast.style.cssText = [
+            'position:fixed',
+            'bottom:calc(24px + env(safe-area-inset-bottom,0px))',
+            'left:50%',
+            'transform:translateX(-50%)',
+            'background:rgba(30,30,30,0.92)',
+            'color:#fff',
+            'padding:12px 20px',
+            'border-radius:24px',
+            'font-size:13px',
+            'z-index:999999',
+            'max-width:85vw',
+            'text-align:center',
+            'box-shadow:0 4px 16px rgba(0,0,0,0.3)',
+            'transition:opacity 0.3s ease',
+            'pointer-events:none',
+            'word-break:break-word'
+        ].join(';');
+        document.body.appendChild(toast);
+    }
+    toast.style.background = isError ? 'rgba(180,30,30,0.95)' : 'rgba(30,30,30,0.92)';
+    toast.textContent = msg;
+    toast.style.opacity = '1';
+    clearTimeout(toast._timer);
+    toast._timer = setTimeout(function() { toast.style.opacity = '0'; }, 3500);
+}
+
+function downloadFileToStorage(url) {
+    if (!isCordovaReal()) {
+        console.warn('downloadFileToStorage: bukan Cordova real, skip');
+        return;
+    }
+
+    var filename = getFilenameFromUrl(url);
+    console.log('downloadFileToStorage: ' + filename + ' from ' + url);
+    showDownloadToast('Mengunduh ' + filename + '...');
+
+    var baseDir = (window.cordova && window.cordova.file)
+        ? (cordova.file.externalRootDirectory || cordova.file.dataDirectory)
+        : null;
+
+    if (!baseDir) {
+        showDownloadToast('Storage tidak tersedia', true);
+        return;
+    }
+
+    var downloadDir = baseDir + 'Download/';
+
+    window.resolveLocalFileSystemURL(downloadDir, function(dirEntry) {
+        doTransfer(dirEntry, filename, url);
+    }, function() {
+        window.resolveLocalFileSystemURL(baseDir, function(rootEntry) {
+            rootEntry.getDirectory('Download', { create: true }, function(dirEntry) {
+                doTransfer(dirEntry, filename, url);
+            }, function(err) {
+                console.error('Gagal buat folder Download: ' + JSON.stringify(err));
+                showDownloadToast('Gagal membuat folder Download', true);
+            });
+        }, function(err) {
+            console.error('Gagal resolve baseDir: ' + JSON.stringify(err));
+            showDownloadToast('Tidak dapat akses storage', true);
+        });
+    });
+}
+
+function doTransfer(dirEntry, filename, url) {
+    var targetPath = dirEntry.toURL() + filename;
+    console.log('FileTransfer target: ' + targetPath);
+
+    var ft = new FileTransfer(); // eslint-disable-line no-undef
+    var uri = encodeURI(url);
+
+    ft.download(
+        uri,
+        targetPath,
+        function(entry) {
+            console.log('Download sukses: ' + entry.toURL());
+            showDownloadToast('Tersimpan: ' + filename);
+        },
+        function(err) {
+            console.error('FileTransfer error: ' + JSON.stringify(err));
+            var msg = 'Gagal unduh';
+            if (err.code === 1) msg = 'Server tidak ditemukan';
+            else if (err.code === 3) msg = 'Koneksi terputus';
+            else if (err.code === 4) msg = 'File tidak ditemukan di server';
+            showDownloadToast(msg, true);
+        },
+        true  // trustAllHosts untuk server HTTP internal
+    );
+}
+
+function setupDownloadInterceptor() {
+    if (!isCordovaReal()) return;
+
+    // Override window.open agar link download tidak membuka browser eksternal
+    var _origOpen = window.open;
+    window.open = function(url, target, features) {
+        if (url && isDownloadUrl(url)) {
+            console.log('window.open intercepted download: ' + url);
+            downloadFileToStorage(url);
+            return null;
+        }
+        return _origOpen.call(window, url, target, features);
+    };
+
+    // Intercept klik pada semua <a> tag (termasuk yang dibuat dinamis oleh Odoo)
+    document.addEventListener('click', function(e) {
+        var el = e.target;
+        while (el && el.tagName !== 'A') el = el.parentElement;
+        if (!el) return;
+        var href = el.getAttribute('href') || '';
+        if (href && isDownloadUrl(href)) {
+            e.preventDefault();
+            e.stopPropagation();
+            var absUrl = href;
+            if (href.charAt(0) === '/') {
+                absUrl = App.baseUrl + href;
+            }
+            console.log('Link click intercepted download: ' + absUrl);
+            downloadFileToStorage(absUrl);
+        }
+    }, true); // capture phase
+
+    console.log('Download interceptor aktif');
 }
 
 /* ── Cordova deviceready ─────────────────────────────────────────────────────── */
