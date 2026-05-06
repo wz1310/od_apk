@@ -6,3 +6,5 @@ package-lock.json
 *.jks
 .DS_Store
 Thumbs.db
+# cordova.js stub untuk browser testing — Cordova generate sendiri saat build
+www/cordova.js

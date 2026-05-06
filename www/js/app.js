@@ -20,10 +20,12 @@ function show(id){ $(id).classList.remove('hidden'); }
 function hide(id){ $(id).classList.add('hidden'); }
 
 function showPage(name) {
-    ['page-connect','page-database','page-webview','page-error'].forEach(function(p){
-        $(p).classList.add('hidden');
+    ['page-connect','page-database','page-error'].forEach(function(p){
+        var el = document.getElementById(p);
+        if (el) el.classList.add('hidden');
     });
-    $(name).classList.remove('hidden');
+    var target = document.getElementById(name);
+    if (target) target.classList.remove('hidden');
 }
 
 /* ── Storage ────────────────────────────────────────────────────────────────── */
