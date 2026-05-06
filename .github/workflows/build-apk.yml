@@ -110,9 +110,77 @@ jobs:
           cordova plugin add cordova-plugin-splashscreen    --save
           cordova plugin add cordova-plugin-network-information --save
           cordova plugin add cordova-plugin-inappbrowser    --save
+          # Plugin khusus untuk allow HTTP cleartext di Android
+          cordova plugin add cordova-plugin-network-security-config --save || true
 
       # ── 11. Inject HTTP cleartext — handled by Cordova hook (scripts/android_cleartext.js)
       # Hook dijalankan otomatis saat cordova build, tidak perlu manual patch di sini
+      # Tambahan: force patch dengan Python setelah prepare untuk memastikan
+      - name: Force patch AndroidManifest for HTTP cleartext
+        run: |
+          python3 - <<'PYEOF'
+          import re, os
+
+          manifest_path = 'platforms/android/app/src/main/AndroidManifest.xml'
+          nsc_dir  = 'platforms/android/app/src/main/res/xml'
+          nsc_path = os.path.join(nsc_dir, 'network_security_config.xml')
+
+          # 1. Tulis network_security_config.xml
+          os.makedirs(nsc_dir, exist_ok=True)
+          nsc_content = '''<?xml version="1.0" encoding="utf-8"?>
+          <network-security-config>
+              <base-config cleartextTrafficPermitted="true">
+                  <trust-anchors>
+                      <certificates src="system" />
+                  </trust-anchors>
+              </base-config>
+          </network-security-config>'''
+          with open(nsc_path, 'w') as f:
+              f.write(nsc_content)
+          print(f'Written: {nsc_path}')
+
+          # 2. Patch AndroidManifest.xml
+          with open(manifest_path, 'r') as f:
+              content = f.read()
+
+          original = content
+
+          # Tambah usesCleartextTraffic jika belum ada
+          if 'usesCleartextTraffic' not in content:
+              content = re.sub(
+                  r'android:hardwareAccelerated="true"',
+                  'android:hardwareAccelerated="true" android:usesCleartextTraffic="true"',
+                  content, count=1
+              )
+              print('Added usesCleartextTraffic')
+
+          # Tambah networkSecurityConfig jika belum ada
+          if 'networkSecurityConfig' not in content:
+              content = re.sub(
+                  r'android:hardwareAccelerated="true"',
+                  'android:hardwareAccelerated="true" android:networkSecurityConfig="@xml/network_security_config"',
+                  content, count=1
+              )
+              print('Added networkSecurityConfig')
+
+          if content != original:
+              with open(manifest_path, 'w') as f:
+                  f.write(content)
+              print('AndroidManifest.xml patched')
+          else:
+              print('AndroidManifest.xml already patched')
+
+          # 3. Verifikasi
+          with open(manifest_path, 'r') as f:
+              result = f.read()
+          print('usesCleartextTraffic present:', 'usesCleartextTraffic' in result)
+          print('networkSecurityConfig present:', 'networkSecurityConfig' in result)
+
+          # Tampilkan baris application
+          for line in result.splitlines():
+              if 'application' in line.lower() or 'cleartext' in line.lower() or 'security' in line.lower():
+                  print('  >', line.strip())
+          PYEOF
 
       # ── 12. Verify requirements ───────────────────────────────────────────────
       - name: Check Cordova requirements
@@ -120,9 +188,19 @@ jobs:
 
       # ── 13. Build DEBUG APK ──────────────────────────────────────────────────
       - name: Build Debug APK
-        run: cordova build android --debug -- --stacktrace
+        run: cordova build android --debug
         env:
           GRADLE_OPTS: "-Dorg.gradle.daemon=false -Dorg.gradle.jvmargs=-Xmx2g"
+
+      # ── Verify manifest after build ───────────────────────────────────────────
+      - name: Verify AndroidManifest after build
+        run: |
+          MANIFEST="platforms/android/app/src/main/AndroidManifest.xml"
+          echo "=== AndroidManifest.xml ==="
+          cat "$MANIFEST"
+          echo ""
+          echo "=== network_security_config.xml ==="
+          cat "platforms/android/app/src/main/res/xml/network_security_config.xml" 2>/dev/null || echo "FILE NOT FOUND"
 
       # ── 14. Upload Debug APK ─────────────────────────────────────────────────
       - name: Upload Debug APK
@@ -137,7 +215,6 @@ jobs:
         run: cordova build android --release -- --packageType=apk
         env:
           GRADLE_OPTS: "-Dorg.gradle.daemon=false -Dorg.gradle.jvmargs=-Xmx2g"
-
       - name: Upload Release APK (unsigned)
         uses: actions/upload-artifact@v4
         with:
