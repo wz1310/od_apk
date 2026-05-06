@@ -419,6 +419,11 @@ function hideSplash() {
 }
 
 /* ── Start ───────────────────────────────────────────────────────────────────── */
+
+// ── Debug log panel variables (HARUS di atas startApp agar bisa dipakai) ──────
+var _dlLogs = [];
+var _dlPanelVisible = false;
+
 function startApp() {
     console.log('startApp() running...');
     try {
@@ -446,8 +451,6 @@ function startApp() {
  * --------------------------------------------------------------------------- */
 
 // ── Debug log panel (muncul di atas IAB, bisa di-toggle) ─────────────────────
-var _dlLogs = [];
-var _dlPanelVisible = false;
 
 function dlLog(level, msg) {
     var ts = new Date().toISOString().substr(11, 12);
@@ -613,23 +616,20 @@ function downloadFileToStorage(url) {
         showDownloadToast('Bukan Cordova real', true);
         return;
     }
-    dlLog('INF', 'isCordovaReal: true');
 
     // Cek plugin File tersedia
     if (typeof window.resolveLocalFileSystemURL === 'undefined') {
-        dlLog('ERR', 'cordova-plugin-file TIDAK tersedia! resolveLocalFileSystemURL undefined');
+        dlLog('ERR', 'cordova-plugin-file TIDAK tersedia!');
         showDownloadToast('Plugin file tidak tersedia', true);
         return;
     }
-    dlLog('INF', 'resolveLocalFileSystemURL: tersedia');
 
     // Cek plugin FileTransfer tersedia
     if (typeof FileTransfer === 'undefined') {
-        dlLog('ERR', 'cordova-plugin-file-transfer TIDAK tersedia! FileTransfer undefined');
+        dlLog('ERR', 'cordova-plugin-file-transfer TIDAK tersedia!');
         showDownloadToast('Plugin file-transfer tidak tersedia', true);
         return;
     }
-    dlLog('INF', 'FileTransfer: tersedia');
 
     var filename = getFilenameFromUrl(url);
     dlLog('INF', 'Filename: ' + filename);
@@ -637,40 +637,112 @@ function downloadFileToStorage(url) {
 
     // Log semua path yang tersedia
     if (window.cordova && window.cordova.file) {
-        dlLog('INF', 'cordova.file.externalRootDirectory: ' + cordova.file.externalRootDirectory);
-        dlLog('INF', 'cordova.file.externalDataDirectory: ' + cordova.file.externalDataDirectory);
-        dlLog('INF', 'cordova.file.dataDirectory: ' + cordova.file.dataDirectory);
-        dlLog('INF', 'cordova.file.documentsDirectory: ' + cordova.file.documentsDirectory);
+        dlLog('INF', 'externalRootDirectory: ' + cordova.file.externalRootDirectory);
+        dlLog('INF', 'externalDataDirectory: ' + cordova.file.externalDataDirectory);
+        dlLog('INF', 'dataDirectory: ' + cordova.file.dataDirectory);
+        dlLog('INF', 'cacheDirectory: ' + cordova.file.cacheDirectory);
     } else {
         dlLog('ERR', 'cordova.file TIDAK tersedia!');
         showDownloadToast('cordova.file tidak tersedia', true);
         return;
     }
 
-    // Pilih direktori tujuan: utamakan Downloads publik
-    var baseDir = cordova.file.externalRootDirectory || cordova.file.dataDirectory;
-    dlLog('INF', 'baseDir dipilih: ' + baseDir);
+    // Android 10+ (API 29+): WRITE_EXTERNAL_STORAGE tidak berlaku lagi.
+    // Gunakan cordova-plugin-android-permissions untuk minta izin runtime,
+    // atau simpan ke externalDataDirectory (tidak butuh permission).
+    var androidVersion = 0;
+    try {
+        var ua = navigator.userAgent;
+        var m = ua.match(/Android (\d+)/);
+        if (m) androidVersion = parseInt(m[1]);
+    } catch(e) {}
+    dlLog('INF', 'Android version: ' + androidVersion);
 
-    // Coba resolve folder Download langsung
-    var downloadPath = baseDir + 'Download/';
-    dlLog('INF', 'Mencoba resolve: ' + downloadPath);
+    if (androidVersion >= 10) {
+        // Android 10+: simpan ke externalDataDirectory (app-specific, tidak butuh permission)
+        // File tetap bisa diakses via file manager di /Android/data/com.wuodoo.mobile/files/
+        dlLog('INF', 'Android 10+: pakai externalDataDirectory (no permission needed)');
+        var saveDir = cordova.file.externalDataDirectory || cordova.file.dataDirectory;
+        dlLog('INF', 'saveDir: ' + saveDir);
+        _resolveAndTransfer(saveDir, filename, url);
+    } else if (androidVersion > 0 && androidVersion < 10) {
+        // Android < 10: minta WRITE_EXTERNAL_STORAGE lalu simpan ke Downloads
+        dlLog('INF', 'Android <10: minta permission WRITE_EXTERNAL_STORAGE');
+        _requestStoragePermissionAndDownload(filename, url);
+    } else {
+        // Tidak bisa deteksi versi, coba langsung ke externalDataDirectory
+        dlLog('WRN', 'Tidak bisa deteksi Android version, coba externalDataDirectory');
+        var saveDir2 = cordova.file.externalDataDirectory || cordova.file.dataDirectory;
+        _resolveAndTransfer(saveDir2, filename, url);
+    }
+}
 
-    window.resolveLocalFileSystemURL(downloadPath, function(dirEntry) {
-        dlLog('INF', 'Folder Download sudah ada: ' + dirEntry.toURL());
+function _requestStoragePermissionAndDownload(filename, url) {
+    // Cek apakah cordova-plugin-android-permissions tersedia
+    if (window.cordova && window.cordova.plugins && window.cordova.plugins.permissions) {
+        var perms = window.cordova.plugins.permissions;
+        perms.checkPermission(perms.WRITE_EXTERNAL_STORAGE, function(status) {
+            dlLog('INF', 'WRITE_EXTERNAL_STORAGE hasPermission: ' + status.hasPermission);
+            if (status.hasPermission) {
+                var dir = cordova.file.externalRootDirectory || cordova.file.dataDirectory;
+                _resolveAndTransfer(dir + 'Download/', filename, url);
+            } else {
+                perms.requestPermission(perms.WRITE_EXTERNAL_STORAGE, function(st) {
+                    dlLog('INF', 'Permission granted: ' + st.hasPermission);
+                    if (st.hasPermission) {
+                        var dir = cordova.file.externalRootDirectory || cordova.file.dataDirectory;
+                        _resolveAndTransfer(dir + 'Download/', filename, url);
+                    } else {
+                        dlLog('ERR', 'Permission DITOLAK user');
+                        showDownloadToast('Izin storage ditolak', true);
+                    }
+                }, function() {
+                    dlLog('ERR', 'requestPermission error');
+                    // Fallback ke externalDataDirectory
+                    _resolveAndTransfer(cordova.file.externalDataDirectory || cordova.file.dataDirectory, filename, url);
+                });
+            }
+        }, function() {
+            dlLog('WRN', 'checkPermission error, langsung coba download');
+            _resolveAndTransfer(cordova.file.externalDataDirectory || cordova.file.dataDirectory, filename, url);
+        });
+    } else {
+        dlLog('WRN', 'cordova-plugin-android-permissions tidak ada, langsung coba');
+        var dir = cordova.file.externalRootDirectory || cordova.file.dataDirectory;
+        _resolveAndTransfer(dir + 'Download/', filename, url);
+    }
+}
+
+function _resolveAndTransfer(dirPath, filename, url) {
+    dlLog('INF', '_resolveAndTransfer dirPath: ' + dirPath);
+    window.resolveLocalFileSystemURL(dirPath, function(dirEntry) {
+        dlLog('INF', 'Dir resolved: ' + dirEntry.toURL());
         doTransfer(dirEntry, filename, url);
-    }, function(err1) {
-        dlLog('WRN', 'Folder Download tidak ada (code=' + err1.code + '), mencoba buat...');
-        window.resolveLocalFileSystemURL(baseDir, function(rootEntry) {
-            dlLog('INF', 'baseDir resolved: ' + rootEntry.toURL());
-            rootEntry.getDirectory('Download', { create: true }, function(dirEntry) {
-                dlLog('INF', 'Folder Download berhasil dibuat: ' + dirEntry.toURL());
+    }, function(err) {
+        dlLog('WRN', 'Dir tidak ada (code=' + err.code + '), mencoba buat...');
+        // Coba buat folder
+        var parentPath = dirPath.replace(/\/$/, '');
+        var parts = parentPath.split('/');
+        var folderName = parts.pop();
+        var parentDir = parts.join('/') + '/';
+        dlLog('INF', 'parentDir: ' + parentDir + ' folderName: ' + folderName);
+        window.resolveLocalFileSystemURL(parentDir, function(parentEntry) {
+            parentEntry.getDirectory(folderName, { create: true }, function(dirEntry) {
+                dlLog('INF', 'Folder dibuat: ' + dirEntry.toURL());
                 doTransfer(dirEntry, filename, url);
             }, function(err2) {
-                dlLog('ERR', 'Gagal buat folder Download: code=' + err2.code + ' msg=' + err2.message);
-                showDownloadToast('Gagal buat folder Download (err ' + err2.code + ')', true);
+                dlLog('ERR', 'Gagal buat folder: code=' + err2.code);
+                // Last resort: pakai dataDirectory langsung
+                dlLog('WRN', 'Fallback ke dataDirectory');
+                window.resolveLocalFileSystemURL(cordova.file.dataDirectory, function(d) {
+                    doTransfer(d, filename, url);
+                }, function(e3) {
+                    dlLog('ERR', 'dataDirectory juga gagal: ' + e3.code);
+                    showDownloadToast('Tidak bisa akses storage sama sekali', true);
+                });
             });
         }, function(err2) {
-            dlLog('ERR', 'Gagal resolve baseDir: code=' + err2.code + ' msg=' + err2.message);
+            dlLog('ERR', 'Gagal resolve parentDir: code=' + err2.code);
             showDownloadToast('Tidak dapat akses storage (err ' + err2.code + ')', true);
         });
     });

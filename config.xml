@@ -46,6 +46,7 @@
     <plugin name="cordova-plugin-inappbrowser"        spec="^5.0.0" />
     <plugin name="cordova-plugin-file"                spec="^8.0.0" />
     <plugin name="cordova-plugin-file-transfer"       spec="^2.0.0" />
+    <plugin name="cordova-plugin-android-permissions" spec="^1.1.5" />
 
     <platform name="android">
         <allow-intent href="market:*" />

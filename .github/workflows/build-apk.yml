@@ -84,6 +84,7 @@ jobs:
           cordova plugin add cordova-plugin-inappbrowser    --save
           cordova plugin add cordova-plugin-file            --save
           cordova plugin add cordova-plugin-file-transfer   --save
+          cordova plugin add cordova-plugin-android-permissions --save
 
       # edit-config di config.xml handle usesCleartextTraffic
       # Tapi cordova-android@13 kadang butuh namespace android: di config.xml
