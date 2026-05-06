@@ -242,96 +242,85 @@ function openOdoo() {
         host: App.host, protocol: App.protocol,
         database: App.database, baseUrl: App.baseUrl
     }));
-    console.log('openOdoo → ' + App.odooUrl);
+    dlLog('INF', 'openOdoo → ' + App.odooUrl);
 
-    // Gunakan InAppBrowser jika tersedia (Cordova real) agar bisa intercept download
     if (isCordovaReal() && typeof cordova.InAppBrowser !== 'undefined') {
         openOdooInAppBrowser(App.odooUrl);
     } else {
-        // Fallback browser dev
         window.location.href = App.odooUrl;
     }
 }
 
-/* ── InAppBrowser dengan download interceptor ────────────────────────────────── */
-var _iab = null; // referensi InAppBrowser yang sedang aktif
+/* ── Download via XHR dari dalam WebView Cordova ─────────────────────────────
+ * Karena window.location.href dipakai (bukan IAB), app.js tidak aktif saat
+ * Odoo berjalan. Solusi: inject script ke halaman Odoo via tag <script> yang
+ * di-load dari file lokal, ATAU gunakan pendekatan yang lebih reliable:
+ * deteksi saat app kembali ke index.html dengan parameter download URL.
+ *
+ * Pendekatan yang dipakai:
+ * 1. Saat Odoo berjalan, override window.open dan intercept <a download> via
+ *    MutationObserver yang di-inject lewat cordova.js (yang sudah ada di semua page)
+ * 2. Gunakan custom URL scheme "wuodoo://download?url=..." sebagai bridge
+ * 3. Cordova mendeteksi scheme ini via shouldOverrideUrlLoading
+ *
+ * Implementasi paling reliable untuk Cordova Android:
+ * Inject script via <script> tag yang di-load dari www/ folder setelah
+ * halaman Odoo selesai load — ini bisa dilakukan karena Cordova WebView
+ * adalah same-origin dengan file:// assets.
+ * --------------------------------------------------------------------------- */
+
+/* ── InAppBrowser dengan session sharing ─────────────────────────────────────
+ * Gunakan target '_self' agar IAB berbagi WebView yang sama dengan Cordova,
+ * sehingga session cookie tetap ada. Dengan '_self', loadstart event tetap
+ * bisa digunakan untuk intercept URL download.
+ * --------------------------------------------------------------------------- */
+var _iab = null;
 
 function openOdooInAppBrowser(url) {
-    dlLog('INF', 'openOdooInAppBrowser: ' + url);
+    dlLog('INF', 'openOdooInAppBrowser (mode _self): ' + url);
     _ensureDlPanel();
 
-    // Tutup instance lama jika ada
     if (_iab) {
         try { _iab.close(); } catch(e) {}
         _iab = null;
     }
 
-    // Cek apakah cordova.InAppBrowser tersedia
-    dlLog('INF', 'cordova.InAppBrowser type: ' + typeof cordova.InAppBrowser);
-
-    // Buka InAppBrowser fullscreen tanpa toolbar (tampilan seperti native app)
-    _iab = cordova.InAppBrowser.open(url, '_blank', [
-        'location=no',
-        'toolbar=no',
-        'toolbarposition=top',
-        'closebuttoncaption=Tutup',
-        'closebuttoncolor=#ffffff',
-        'toolbarcolor=#714B67',
-        'navigationbuttoncolor=#ffffff',
-        'hidenavigationbuttons=yes',
-        'hideurlbar=yes',
-        'fullscreen=yes',
-        'zoom=no',
-        'hardwareback=yes',
-        'clearcache=no',
-        'clearsessioncache=no',
-        'allowInlineMediaPlayback=yes',
-        'mediaPlaybackRequiresUserAction=no'
-    ].join(','));
+    // Gunakan '_self' — ini membuka di WebView yang SAMA dengan Cordova
+    // sehingga session cookie terjaga, tapi loadstart event tetap bisa dipakai
+    _iab = cordova.InAppBrowser.open(url, '_self', 'location=no');
 
     if (!_iab) {
-        dlLog('ERR', 'InAppBrowser.open() mengembalikan null/undefined!');
-        dlLog('WRN', 'Fallback ke window.location.href');
+        dlLog('ERR', 'IAB _self gagal, fallback window.location');
         window.location.href = url;
         return;
     }
-    dlLog('INF', 'InAppBrowser instance dibuat: ' + typeof _iab);
+    dlLog('INF', 'IAB _self dibuat');
 
-    // ── Event: loadstart — intercept URL sebelum WebView navigasi ──────────
     _iab.addEventListener('loadstart', function(event) {
         var navUrl = event.url || '';
         dlLog('INF', 'IAB loadstart: ' + navUrl);
-
         var isDL = isDownloadUrl(navUrl);
-        dlLog('INF', 'isDownloadUrl(' + navUrl.substr(0,60) + '): ' + isDL);
-
         if (isDL) {
-            dlLog('INF', '>>> DOWNLOAD URL TERDETEKSI, menghentikan navigasi...');
-            try { _iab.stop(); dlLog('INF', '_iab.stop() OK'); }
-            catch(e) { dlLog('WRN', '_iab.stop() error: ' + e); }
+            dlLog('INF', '>>> DOWNLOAD TERDETEKSI: ' + navUrl);
+            try { _iab.stop(); } catch(e) {}
             downloadFileToStorage(navUrl);
         }
     });
 
-    // ── Event: loadstop ─────────────────────────────────────────────────────
-    _iab.addEventListener('loadstop', function(event) {
-        dlLog('INF', 'IAB loadstop: ' + (event.url || ''));
+    _iab.addEventListener('loadstop', function(e) {
+        dlLog('INF', 'IAB loadstop: ' + (e.url || ''));
     });
 
-    // ── Event: loaderror ────────────────────────────────────────────────────
-    _iab.addEventListener('loaderror', function(event) {
-        dlLog('ERR', 'IAB loaderror: code=' + event.code + ' msg=' + event.message + ' url=' + event.url);
+    _iab.addEventListener('loaderror', function(e) {
+        dlLog('ERR', 'IAB loaderror: ' + e.message);
     });
 
-    // ── Event: exit — user tutup InAppBrowser ───────────────────────────────
     _iab.addEventListener('exit', function() {
-        dlLog('INF', 'IAB exit — kembali ke halaman connect');
+        dlLog('INF', 'IAB exit');
         _iab = null;
         showPage('page-connect');
         renderSavedServers();
     });
-
-    dlLog('INF', 'Semua event listener IAB terpasang ✓');
 }
 
 /* ── Side Menu ───────────────────────────────────────────────────────────────── */
@@ -750,54 +739,42 @@ function _resolveAndTransfer(dirPath, filename, url) {
 
 function doTransfer(dirEntry, filename, url) {
     var targetPath = dirEntry.toURL() + filename;
-    dlLog('INF', 'doTransfer() target: ' + targetPath);
-    dlLog('INF', 'doTransfer() url: ' + url);
+    dlLog('INF', 'doTransfer target: ' + targetPath);
 
     var ft = new FileTransfer(); // eslint-disable-line no-undef
     var uri = encodeURI(url);
-    dlLog('INF', 'encodeURI: ' + uri);
 
-    // Kirim cookie session agar Odoo tidak redirect ke login
+    // Ambil cookie dari document.cookie (WebView Cordova berbagi cookie dengan _self IAB)
+    var cookieStr = '';
+    try { cookieStr = document.cookie || ''; } catch(e) {}
+    dlLog('INF', 'document.cookie length: ' + cookieStr.length);
+    if (cookieStr) dlLog('INF', 'cookie preview: ' + cookieStr.substr(0, 80));
+
     var headers = {};
-    if (window._iabCookies) {
-        headers['Cookie'] = window._iabCookies;
-        dlLog('INF', 'Cookie dikirim: ' + window._iabCookies.substr(0, 60) + '...');
-    } else {
-        dlLog('WRN', 'Tidak ada cookie session (_iabCookies kosong)');
-    }
+    if (cookieStr) headers['Cookie'] = cookieStr;
 
-    // Progress callback
-    ft.onprogress = function(progressEvent) {
-        if (progressEvent.lengthComputable) {
-            var pct = Math.round((progressEvent.loaded / progressEvent.total) * 100);
-            dlLog('INF', 'Progress: ' + pct + '% (' + progressEvent.loaded + '/' + progressEvent.total + ')');
+    ft.onprogress = function(ev) {
+        if (ev.lengthComputable) {
+            dlLog('INF', 'Progress: ' + Math.round(ev.loaded/ev.total*100) + '%');
         } else {
-            dlLog('INF', 'Progress: ' + progressEvent.loaded + ' bytes');
+            dlLog('INF', 'Progress: ' + ev.loaded + ' bytes');
         }
     };
 
-    dlLog('INF', 'Memulai ft.download()...');
+    dlLog('INF', 'ft.download() mulai...');
     ft.download(
-        uri,
-        targetPath,
+        uri, targetPath,
         function(entry) {
-            dlLog('INF', 'Download SUKSES: ' + entry.toURL());
-            dlLog('INF', 'Nama file: ' + entry.name);
+            dlLog('INF', 'SUKSES: ' + entry.toURL());
             showDownloadToast('✅ Tersimpan: ' + filename);
         },
         function(err) {
-            dlLog('ERR', 'FileTransfer ERROR!');
-            dlLog('ERR', 'code: ' + err.code);
-            dlLog('ERR', 'source: ' + err.source);
-            dlLog('ERR', 'target: ' + err.target);
-            dlLog('ERR', 'http_status: ' + err.http_status);
-            dlLog('ERR', 'body: ' + err.body);
-            dlLog('ERR', 'exception: ' + err.exception);
+            dlLog('ERR', 'GAGAL code=' + err.code + ' http=' + err.http_status + ' body=' + err.body);
             var msg = '❌ Gagal unduh (code ' + err.code + ')';
             if (err.http_status) msg += ' HTTP ' + err.http_status;
             showDownloadToast(msg, true);
         },
-        true,    // trustAllHosts untuk server HTTP internal
+        true,
         { headers: headers }
     );
 }
