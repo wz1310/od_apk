@@ -10,7 +10,7 @@ function show(id) { $(id).classList.remove('hidden'); }
 function hide(id) { $(id).classList.add('hidden'); }
 
 function showPage(name) {
-    ['page-connect','page-database','page-error'].forEach(function(p) {
+    ['page-connect','page-database','page-error','page-odoo'].forEach(function(p) {
         var el = document.getElementById(p);
         if (el) el.classList.add('hidden');
     });
@@ -243,7 +243,17 @@ function openOdoo() {
         database: App.database, baseUrl: App.baseUrl
     }));
     console.log('openOdoo → ' + App.odooUrl);
-    window.location.href = App.odooUrl;
+
+    // Set spacer height = status bar padding yang sudah dihitung
+    var spacer = document.getElementById('odoo-statusbar-spacer');
+    if (spacer && window._statusBarPad) {
+        spacer.style.height = window._statusBarPad + 'px';
+    }
+
+    // Load Odoo di dalam iframe
+    var frame = document.getElementById('odoo-frame');
+    frame.src = App.odooUrl;
+    showPage('page-odoo');
 }
 
 /* ── Side Menu ───────────────────────────────────────────────────────────────── */
@@ -262,6 +272,14 @@ function closeMenu() {
 /* ── Back button ─────────────────────────────────────────────────────────────── */
 function handleBackButton() {
     if ($('side-menu').classList.contains('open')) { closeMenu(); return; }
+    if (!$('page-odoo').classList.contains('hidden')) {
+        // Coba navigasi back di dalam iframe dulu
+        var frame = $('odoo-frame');
+        try {
+            frame.contentWindow.history.back();
+        } catch(e) {}
+        return;
+    }
     if (!$('page-database').classList.contains('hidden')) {
         showPage('page-connect'); renderSavedServers(); return;
     }
