@@ -29,7 +29,7 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      # ── 3. Setup Node.js 20 ──────────────────────────────────────────────────
+      # ── 3. Setup Node.js ─────────────────────────────────────────────────────
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
@@ -61,25 +61,20 @@ jobs:
       - name: Verify Gradle version
         run: gradle --version
 
-      # ── 6. Generate icons & splash (pure Python, no PIL) ─────────────────────
+      # ── 6. Generate icons & splash ───────────────────────────────────────────
       - name: Generate icons and splash
         run: |
           mkdir -p res/icon/android res/screen/android
           python3 - <<'PYEOF'
-          import struct, zlib, os
+          import struct, zlib
 
           def make_png(width, height, r, g, b):
-              """Buat PNG solid color tanpa library eksternal."""
               def chunk(name, data):
                   c = struct.pack('>I', len(data)) + name + data
                   return c + struct.pack('>I', zlib.crc32(name + data) & 0xffffffff)
-
-              # IHDR
               ihdr = struct.pack('>IIBBBBB', width, height, 8, 2, 0, 0, 0)
-              # Raw pixel rows: filter byte 0x00 + RGB per pixel
-              row = b'\x00' + bytes([r, g, b]) * width
-              raw = row * height
-              idat = zlib.compress(raw)
+              row  = b'\x00' + bytes([r, g, b]) * width
+              idat = zlib.compress(row * height)
               png  = b'\x89PNG\r\n\x1a\n'
               png += chunk(b'IHDR', ihdr)
               png += chunk(b'IDAT', idat)
@@ -87,16 +82,13 @@ jobs:
               return png
 
           R, G, B = 113, 75, 103
-
           for size in [48, 72, 96, 144, 192]:
-              path = f'res/icon/android/icon-{size}.png'
-              with open(path, 'wb') as f:
+              with open(f'res/icon/android/icon-{size}.png', 'wb') as f:
                   f.write(make_png(size, size, R, G, B))
-              print(f'{path} OK')
-
+              print(f'icon-{size}.png OK')
           with open('res/screen/android/splash.png', 'wb') as f:
               f.write(make_png(1280, 1920, R, G, B))
-          print('res/screen/android/splash.png OK')
+          print('splash.png OK')
           PYEOF
 
       # ── 7. Install Cordova CLI ────────────────────────────────────────────────
@@ -111,28 +103,7 @@ jobs:
       - name: Add Android platform
         run: cordova platform add android@13
 
-      # ── 10. Verify cordova requirements ──────────────────────────────────────
-      - name: Check Cordova requirements
-        run: cordova requirements android || true
-
-      # ── 11. Inject network security config (allow HTTP cleartext) ───────────
-      - name: Inject network security config
-        run: |
-          mkdir -p platforms/android/app/src/main/res/xml
-          cp res/android/network_security_config.xml \
-             platforms/android/app/src/main/res/xml/network_security_config.xml
-
-          MANIFEST="platforms/android/app/src/main/AndroidManifest.xml"
-          # Hanya patch jika belum ada networkSecurityConfig
-          if ! grep -q "networkSecurityConfig" "$MANIFEST"; then
-            sed -i 's|android:hardwareAccelerated="true"|android:hardwareAccelerated="true" android:networkSecurityConfig="@xml/network_security_config" android:usesCleartextTraffic="true"|' "$MANIFEST"
-            echo "Manifest patched OK"
-          else
-            echo "Manifest already has networkSecurityConfig, skipping"
-          fi
-          grep "networkSecurityConfig\|usesCleartextTraffic" "$MANIFEST" || true
-
-      # ── 12. Install Cordova plugins ──────────────────────────────────────────
+      # ── 10. Install Cordova plugins ──────────────────────────────────────────
       - name: Install Cordova plugins
         run: |
           cordova plugin add cordova-plugin-statusbar       --save
@@ -140,13 +111,55 @@ jobs:
           cordova plugin add cordova-plugin-network-information --save
           cordova plugin add cordova-plugin-inappbrowser    --save
 
-      # ── 12. Build DEBUG APK ──────────────────────────────────────────────────
+      # ── 11. Inject HTTP cleartext config ─────────────────────────────────────
+      # PENTING: dilakukan SETELAH semua plugin install dan SEBELUM build
+      # supaya Cordova tidak overwrite perubahan ini
+      - name: Inject HTTP cleartext (network security config)
+        run: |
+          MANIFEST="platforms/android/app/src/main/AndroidManifest.xml"
+          RES_XML="platforms/android/app/src/main/res/xml"
+
+          echo "=== AndroidManifest.xml sebelum patch ==="
+          grep -n "application" "$MANIFEST" | head -5
+
+          # 1. Buat network_security_config.xml
+          mkdir -p "$RES_XML"
+          cat > "$RES_XML/network_security_config.xml" <<'XML'
+          <?xml version="1.0" encoding="utf-8"?>
+          <network-security-config>
+              <base-config cleartextTrafficPermitted="true">
+                  <trust-anchors>
+                      <certificates src="system" />
+                  </trust-anchors>
+              </base-config>
+          </network-security-config>
+          XML
+          echo "network_security_config.xml created"
+
+          # 2. Patch AndroidManifest.xml
+          # Cari baris <application dan tambahkan atribut jika belum ada
+          if grep -q 'usesCleartextTraffic' "$MANIFEST"; then
+            echo "usesCleartextTraffic already present, skipping"
+          else
+            # Tambahkan ke baris yang mengandung android:hardwareAccelerated
+            sed -i 's|android:hardwareAccelerated="true"|android:hardwareAccelerated="true"\n            android:usesCleartextTraffic="true"\n            android:networkSecurityConfig="@xml/network_security_config"|' "$MANIFEST"
+            echo "Manifest patched"
+          fi
+
+          echo "=== AndroidManifest.xml setelah patch ==="
+          grep -n "usesCleartextTraffic\|networkSecurityConfig\|hardwareAccelerated" "$MANIFEST"
+
+      # ── 12. Verify requirements ───────────────────────────────────────────────
+      - name: Check Cordova requirements
+        run: cordova requirements android || true
+
+      # ── 13. Build DEBUG APK ──────────────────────────────────────────────────
       - name: Build Debug APK
         run: cordova build android --debug -- --stacktrace
         env:
           GRADLE_OPTS: "-Dorg.gradle.daemon=false -Dorg.gradle.jvmargs=-Xmx2g"
 
-      # ── 13. Upload Debug APK ─────────────────────────────────────────────────
+      # ── 14. Upload Debug APK ─────────────────────────────────────────────────
       - name: Upload Debug APK
         uses: actions/upload-artifact@v4
         with:
@@ -154,9 +167,9 @@ jobs:
           path: platforms/android/app/build/outputs/apk/debug/app-debug.apk
           retention-days: 30
 
-      # ── 14. Build Release APK (unsigned) ─────────────────────────────────────
+      # ── 15. Build Release APK (unsigned) ─────────────────────────────────────
       - name: Build Release APK (unsigned)
-        run: cordova build android --release -- --packageType=apk --stacktrace
+        run: cordova build android --release -- --packageType=apk
         env:
           GRADLE_OPTS: "-Dorg.gradle.daemon=false -Dorg.gradle.jvmargs=-Xmx2g"
 
@@ -167,7 +180,7 @@ jobs:
           path: platforms/android/app/build/outputs/apk/release/app-release-unsigned.apk
           retention-days: 30
 
-      # ── 15. Sign Release APK (opsional, butuh secrets) ───────────────────────
+      # ── 16. Sign Release APK (opsional) ──────────────────────────────────────
       - name: Sign Release APK
         if: ${{ env.HAS_KEYSTORE == 'true' }}
         env:
