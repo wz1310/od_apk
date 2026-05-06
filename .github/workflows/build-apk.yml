@@ -10,21 +10,22 @@ on:
 jobs:
   build:
     name: Build APK
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
 
     steps:
       # ── 1. Checkout ──────────────────────────────────────────────────────────
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # ── 2. Setup Java (required for Android build) ───────────────────────────
+      # ── 2. Setup Java 17 ─────────────────────────────────────────────────────
+      # cordova-android@13 butuh Java 17, Gradle 8.x
       - name: Setup Java 17
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '17'
 
-      # ── 3. Setup Node.js ─────────────────────────────────────────────────────
+      # ── 3. Setup Node.js 20 ──────────────────────────────────────────────────
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
@@ -37,74 +38,74 @@ jobs:
       - name: Accept Android SDK licenses
         run: yes | sdkmanager --licenses || true
 
-      - name: Install Android build tools
+      - name: Install Android SDK components
         run: |
-          sdkmanager "platform-tools" \
-                     "platforms;android-34" \
-                     "build-tools;34.0.0"
+          sdkmanager \
+            "platform-tools" \
+            "platforms;android-34" \
+            "build-tools;34.0.0"
 
-      # ── 5. Generate placeholder icons & splash ───────────────────────────────
-      - name: Generate placeholder icons and splash
+      # ── 5. Pin Gradle 8.7 (fix XmlParser error di Gradle 9) ─────────────────
+      # Gradle 9 menghapus XmlParser dari Groovy — cordova-android@13 butuh Gradle 8
+      - name: Install Gradle 8.7
         run: |
-          sudo apt-get install -y imagemagick 2>/dev/null || true
+          wget -q https://services.gradle.org/distributions/gradle-8.7-bin.zip -O /tmp/gradle.zip
+          unzip -q /tmp/gradle.zip -d /opt/gradle
+          echo "/opt/gradle/gradle-8.7/bin" >> $GITHUB_PATH
+          echo "GRADLE_HOME=/opt/gradle/gradle-8.7" >> $GITHUB_ENV
+
+      - name: Verify Gradle version
+        run: gradle --version
+
+      # ── 6. Generate placeholder icons & splash ───────────────────────────────
+      - name: Generate icons and splash
+        run: |
           mkdir -p res/icon/android res/screen/android
-          for size in 48 72 96 144 192; do
-            convert -size ${size}x${size} xc:"#714B67" \
-              -fill white -font DejaVu-Sans-Bold \
-              -pointsize $((size/3)) -gravity center \
-              -annotate 0 "WU" \
-              res/icon/android/icon-${size}.png 2>/dev/null || \
-            python3 -c "
-          from PIL import Image, ImageDraw, ImageFont
-          import sys
-          size = int(sys.argv[1])
-          img = Image.new('RGB', (size, size), '#714B67')
-          draw = ImageDraw.Draw(img)
-          draw.rectangle([0,0,size,size], fill='#714B67')
-          img.save('res/icon/android/icon-' + str(size) + '.png')
-          " $size 2>/dev/null || \
-            cp res/icon/android/.gitkeep res/icon/android/icon-${size}.png || true
-          done
-          # Splash 1280x1920
-          convert -size 1280x1920 xc:"#714B67" \
-            -fill white -font DejaVu-Sans-Bold \
-            -pointsize 120 -gravity center \
-            -annotate 0 "WU Odoo" \
-            res/screen/android/splash.png 2>/dev/null || \
-          python3 -c "
+          python3 - <<'EOF'
           from PIL import Image, ImageDraw
-          img = Image.new('RGB', (1280, 1920), '#714B67')
-          img.save('res/screen/android/splash.png')
-          " 2>/dev/null || true
-          echo "Icons generated"
+          import os
 
-      # ── 6. Install Cordova & dependencies ────────────────────────────────────
-      - name: Install Cordova globally
+          # Icons
+          sizes = [48, 72, 96, 144, 192]
+          color = (113, 75, 103)
+          for size in sizes:
+              img = Image.new('RGB', (size, size), color)
+              d = ImageDraw.Draw(img)
+              img.save(f'res/icon/android/icon-{size}.png')
+              print(f'Generated icon-{size}.png')
+
+          # Splash 1280x1920
+          img = Image.new('RGB', (1280, 1920), color)
+          img.save('res/screen/android/splash.png')
+          print('Generated splash.png')
+          EOF
+
+      # ── 7. Install Cordova CLI ────────────────────────────────────────────────
+      - name: Install Cordova CLI
         run: npm install -g cordova@12
 
+      # ── 8. Install npm dependencies ──────────────────────────────────────────
       - name: Install npm dependencies
         run: npm install
 
-      # ── 6. Add Android platform ──────────────────────────────────────────────
+      # ── 9. Add Android platform (cordova-android@13) ─────────────────────────
+      # cordova-android@13 = support Gradle 8, targetSdk 34, fix XmlParser
       - name: Add Android platform
-        run: cordova platform add android@12 --save || cordova platform update android@12
+        run: cordova platform add android@13
 
-      # ── 7. Install Cordova plugins ───────────────────────────────────────────
+      # ── 10. Install Cordova plugins ──────────────────────────────────────────
       - name: Install Cordova plugins
         run: |
-          cordova plugin add cordova-plugin-whitelist
           cordova plugin add cordova-plugin-statusbar
           cordova plugin add cordova-plugin-splashscreen
           cordova plugin add cordova-plugin-network-information
           cordova plugin add cordova-plugin-inappbrowser
 
-      # ── 8. Build DEBUG APK ───────────────────────────────────────────────────
+      # ── 11. Build DEBUG APK ──────────────────────────────────────────────────
       - name: Build Debug APK
         run: cordova build android --debug
-        env:
-          ANDROID_HOME: ${{ env.ANDROID_HOME }}
 
-      # ── 9. Upload Debug APK as artifact ──────────────────────────────────────
+      # ── 12. Upload Debug APK ─────────────────────────────────────────────────
       - name: Upload Debug APK
         uses: actions/upload-artifact@v4
         with:
@@ -112,11 +113,9 @@ jobs:
           path: platforms/android/app/build/outputs/apk/debug/app-debug.apk
           retention-days: 30
 
-      # ── 10. Build RELEASE APK (unsigned) ─────────────────────────────────────
+      # ── 13. Build Release APK (unsigned) ─────────────────────────────────────
       - name: Build Release APK (unsigned)
         run: cordova build android --release -- --packageType=apk
-        env:
-          ANDROID_HOME: ${{ env.ANDROID_HOME }}
 
       - name: Upload Release APK (unsigned)
         uses: actions/upload-artifact@v4
@@ -125,14 +124,14 @@ jobs:
           path: platforms/android/app/build/outputs/apk/release/app-release-unsigned.apk
           retention-days: 30
 
-      # ── 11. Sign Release APK (jika ada keystore di secrets) ──────────────────
+      # ── 14. Sign Release APK (opsional, butuh secrets) ───────────────────────
       - name: Sign Release APK
-        if: ${{ env.KEYSTORE_BASE64 != '' }}
+        if: ${{ secrets.KEYSTORE_BASE64 != '' }}
         env:
-          KEYSTORE_BASE64:    ${{ secrets.KEYSTORE_BASE64 }}
-          KEYSTORE_PASSWORD:  ${{ secrets.KEYSTORE_PASSWORD }}
-          KEY_ALIAS:          ${{ secrets.KEY_ALIAS }}
-          KEY_PASSWORD:       ${{ secrets.KEY_PASSWORD }}
+          KEYSTORE_BASE64:   ${{ secrets.KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS:         ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD:      ${{ secrets.KEY_PASSWORD }}
         run: |
           echo "$KEYSTORE_BASE64" | base64 --decode > wu_odoo.keystore
           $ANDROID_HOME/build-tools/34.0.0/apksigner sign \
@@ -145,9 +144,7 @@ jobs:
           rm -f wu_odoo.keystore
 
       - name: Upload Signed Release APK
-        if: ${{ env.KEYSTORE_BASE64 != '' }}
-        env:
-          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+        if: ${{ secrets.KEYSTORE_BASE64 != '' }}
         uses: actions/upload-artifact@v4
         with:
           name: wu-odoo-release-signed-apk
