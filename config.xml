@@ -34,6 +34,7 @@
     <!-- Status bar -->
     <preference name="StatusBarBackgroundColor" value="#714B67" />
     <preference name="StatusBarStyle"           value="lightcontent" />
+    <preference name="StatusBarOverlaysWebView" value="false" />
 
     <!-- Hook: inject HTTP cleartext config setelah setiap prepare/build -->
     <hook type="after_prepare" src="scripts/android_cleartext.js" />
