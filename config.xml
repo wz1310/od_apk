@@ -14,31 +14,31 @@
     <allow-intent href="https://*/*" />
     <allow-navigation href="*" />
 
-    <preference name="DisallowOverscroll"    value="true" />
-    <preference name="android-minSdkVersion" value="22" />
+    <preference name="DisallowOverscroll"       value="true" />
+    <preference name="android-minSdkVersion"    value="22" />
     <preference name="android-targetSdkVersion" value="34" />
-    <preference name="Orientation"           value="default" />
-    <preference name="KeepRunning"           value="true" />
-    <preference name="LoadUrlTimeoutValue"   value="30000" />
-    <preference name="ErrorUrl"              value="error.html" />
-    <preference name="BackgroundColor"       value="0xff714B67" />
+    <preference name="Orientation"              value="default" />
+    <preference name="KeepRunning"              value="true" />
+    <preference name="LoadUrlTimeoutValue"      value="30000" />
+    <preference name="ErrorUrl"                 value="error.html" />
+    <preference name="BackgroundColor"          value="0xff714B67" />
 
-    <!-- Splash screen (cordova-android@13 style) -->
-    <preference name="AndroidWindowSplashScreenBackground"      value="#714B67" />
-    <preference name="AndroidWindowSplashScreenAnimatedIcon"    value="res/screen/android/splash.png" />
+    <!-- Splash screen -->
+    <preference name="AndroidWindowSplashScreenBackground"        value="#714B67" />
+    <preference name="AndroidWindowSplashScreenAnimatedIcon"      value="res/screen/android/splash.png" />
     <preference name="AndroidWindowSplashScreenAnimationDuration" value="1000" />
-    <preference name="SplashScreenDelay"     value="2000" />
-    <preference name="AutoHideSplashScreen"  value="true" />
+    <preference name="SplashScreenDelay"        value="2000" />
+    <preference name="AutoHideSplashScreen"     value="true" />
 
     <!-- Status bar -->
     <preference name="StatusBarBackgroundColor" value="#714B67" />
     <preference name="StatusBarStyle"           value="lightcontent" />
 
     <!-- Plugins -->
-    <plugin name="cordova-plugin-statusbar"          spec="^3.0.0" />
-    <plugin name="cordova-plugin-splashscreen"       spec="^6.0.0" />
+    <plugin name="cordova-plugin-statusbar"           spec="^3.0.0" />
+    <plugin name="cordova-plugin-splashscreen"        spec="^6.0.0" />
     <plugin name="cordova-plugin-network-information" spec="^3.0.0" />
-    <plugin name="cordova-plugin-inappbrowser"       spec="^5.0.0" />
+    <plugin name="cordova-plugin-inappbrowser"        spec="^5.0.0" />
 
     <platform name="android">
         <allow-intent href="market:*" />
@@ -49,13 +49,6 @@
         <icon src="res/icon/android/icon-96.png"  density="xhdpi" />
         <icon src="res/icon/android/icon-72.png"  density="hdpi" />
         <icon src="res/icon/android/icon-48.png"  density="mdpi" />
-
-        <!-- Allow cleartext HTTP untuk akses server lokal -->
-        <edit-config file="app/src/main/AndroidManifest.xml"
-                     mode="merge"
-                     target="/manifest/application">
-            <application android:usesCleartextTraffic="true" />
-        </edit-config>
     </platform>
 
 </widget>
