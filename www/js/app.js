@@ -244,75 +244,78 @@ function openOdoo() {
     }));
     dlLog('INF', 'openOdoo → ' + App.odooUrl);
 
-    if (isCordovaReal() && typeof cordova.InAppBrowser !== 'undefined') {
+    if (isCordovaReal() && window.cordova && window.cordova.InAppBrowser) {
         openOdooInAppBrowser(App.odooUrl);
     } else {
         window.location.href = App.odooUrl;
     }
 }
 
-/* ── Download via XHR dari dalam WebView Cordova ─────────────────────────────
- * Karena window.location.href dipakai (bukan IAB), app.js tidak aktif saat
- * Odoo berjalan. Solusi: inject script ke halaman Odoo via tag <script> yang
- * di-load dari file lokal, ATAU gunakan pendekatan yang lebih reliable:
- * deteksi saat app kembali ke index.html dengan parameter download URL.
- *
- * Pendekatan yang dipakai:
- * 1. Saat Odoo berjalan, override window.open dan intercept <a download> via
- *    MutationObserver yang di-inject lewat cordova.js (yang sudah ada di semua page)
- * 2. Gunakan custom URL scheme "wuodoo://download?url=..." sebagai bridge
- * 3. Cordova mendeteksi scheme ini via shouldOverrideUrlLoading
- *
- * Implementasi paling reliable untuk Cordova Android:
- * Inject script via <script> tag yang di-load dari www/ folder setelah
- * halaman Odoo selesai load — ini bisa dilakukan karena Cordova WebView
- * adalah same-origin dengan file:// assets.
- * --------------------------------------------------------------------------- */
-
-/* ── InAppBrowser dengan session sharing ─────────────────────────────────────
- * Gunakan target '_self' agar IAB berbagi WebView yang sama dengan Cordova,
- * sehingga session cookie tetap ada. Dengan '_self', loadstart event tetap
- * bisa digunakan untuk intercept URL download.
- * --------------------------------------------------------------------------- */
+/* ── InAppBrowser — _blank dengan intercept download ────────────────────────── */
 var _iab = null;
 
 function openOdooInAppBrowser(url) {
-    dlLog('INF', 'openOdooInAppBrowser (mode _self): ' + url);
-    _ensureDlPanel();
+    dlLog('INF', 'openOdooInAppBrowser: ' + url);
 
     if (_iab) {
         try { _iab.close(); } catch(e) {}
         _iab = null;
     }
 
-    // Gunakan '_self' — ini membuka di WebView yang SAMA dengan Cordova
-    // sehingga session cookie terjaga, tapi loadstart event tetap bisa dipakai
-    _iab = cordova.InAppBrowser.open(url, '_self', 'location=no');
+    // _blank: WebView terpisah dengan event loadstart yang berfungsi.
+    // Session Odoo akan ada setelah user login di IAB (atau sudah login).
+    // Cookie dari IAB diambil via executeScript setelah loadstop.
+    _iab = cordova.InAppBrowser.open(url, '_blank', [
+        'location=no',
+        'toolbar=no',
+        'fullscreen=yes',
+        'zoom=no',
+        'hardwareback=yes',
+        'clearcache=no',
+        'clearsessioncache=no'
+    ].join(','));
 
     if (!_iab) {
-        dlLog('ERR', 'IAB _self gagal, fallback window.location');
+        dlLog('ERR', 'IAB gagal dibuka, fallback window.location');
         window.location.href = url;
         return;
     }
-    dlLog('INF', 'IAB _self dibuat');
+    dlLog('INF', 'IAB dibuka ✓');
 
+    // Setelah setiap halaman selesai load, ambil cookie session dari IAB
+    _iab.addEventListener('loadstop', function(event) {
+        var stopUrl = event.url || '';
+        dlLog('INF', 'IAB loadstop: ' + stopUrl);
+
+        // Ambil cookie dari dalam IAB via executeScript
+        _iab.executeScript(
+            { code: 'document.cookie' },
+            function(values) {
+                if (values && values[0]) {
+                    window._iabCookies = values[0];
+                    dlLog('INF', 'Cookie dari IAB: ' + String(values[0]).substr(0, 80));
+                } else {
+                    dlLog('WRN', 'Cookie IAB kosong');
+                }
+            }
+        );
+    });
+
+    // loadstart: intercept URL download SEBELUM WebView navigasi
     _iab.addEventListener('loadstart', function(event) {
         var navUrl = event.url || '';
         dlLog('INF', 'IAB loadstart: ' + navUrl);
-        var isDL = isDownloadUrl(navUrl);
-        if (isDL) {
+
+        if (isDownloadUrl(navUrl)) {
             dlLog('INF', '>>> DOWNLOAD TERDETEKSI: ' + navUrl);
-            try { _iab.stop(); } catch(e) {}
+            try { _iab.stop(); dlLog('INF', 'stop() OK'); }
+            catch(e) { dlLog('WRN', 'stop() err: ' + e); }
             downloadFileToStorage(navUrl);
         }
     });
 
-    _iab.addEventListener('loadstop', function(e) {
-        dlLog('INF', 'IAB loadstop: ' + (e.url || ''));
-    });
-
     _iab.addEventListener('loaderror', function(e) {
-        dlLog('ERR', 'IAB loaderror: ' + e.message);
+        dlLog('ERR', 'IAB loaderror: ' + e.message + ' url=' + e.url);
     });
 
     _iab.addEventListener('exit', function() {
@@ -744,18 +747,18 @@ function doTransfer(dirEntry, filename, url) {
     var ft = new FileTransfer(); // eslint-disable-line no-undef
     var uri = encodeURI(url);
 
-    // Ambil cookie dari document.cookie (WebView Cordova berbagi cookie dengan _self IAB)
-    var cookieStr = '';
-    try { cookieStr = document.cookie || ''; } catch(e) {}
-    dlLog('INF', 'document.cookie length: ' + cookieStr.length);
-    if (cookieStr) dlLog('INF', 'cookie preview: ' + cookieStr.substr(0, 80));
+    // Pakai cookie yang diambil dari IAB via executeScript di loadstop
+    var cookieStr = window._iabCookies || '';
+    dlLog('INF', 'Cookie length: ' + cookieStr.length);
+    if (cookieStr) dlLog('INF', 'Cookie: ' + cookieStr.substr(0, 80));
+    else dlLog('WRN', 'Tidak ada cookie — download mungkin gagal 401');
 
     var headers = {};
     if (cookieStr) headers['Cookie'] = cookieStr;
 
     ft.onprogress = function(ev) {
         if (ev.lengthComputable) {
-            dlLog('INF', 'Progress: ' + Math.round(ev.loaded/ev.total*100) + '%');
+            dlLog('INF', 'Progress: ' + Math.round(ev.loaded / ev.total * 100) + '%');
         } else {
             dlLog('INF', 'Progress: ' + ev.loaded + ' bytes');
         }
@@ -769,7 +772,7 @@ function doTransfer(dirEntry, filename, url) {
             showDownloadToast('✅ Tersimpan: ' + filename);
         },
         function(err) {
-            dlLog('ERR', 'GAGAL code=' + err.code + ' http=' + err.http_status + ' body=' + err.body);
+            dlLog('ERR', 'GAGAL code=' + err.code + ' http=' + err.http_status + ' body=' + String(err.body || '').substr(0, 100));
             var msg = '❌ Gagal unduh (code ' + err.code + ')';
             if (err.http_status) msg += ' HTTP ' + err.http_status;
             showDownloadToast(msg, true);
