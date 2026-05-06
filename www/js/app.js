@@ -243,15 +243,17 @@ function openOdoo() {
         database: App.database, baseUrl: App.baseUrl
     }));
     dlLog('INF', 'openOdoo → ' + App.odooUrl);
-
-    if (isCordovaReal() && window.cordova && window.cordova.InAppBrowser) {
-        openOdooInAppBrowser(App.odooUrl);
-    } else {
-        window.location.href = App.odooUrl;
-    }
+    // Navigasi langsung — session cookie terjaga, app.js tidak perlu aktif
+    // Download dihandle oleh addon wu_mobile_download yang inject script ke Odoo
+    window.location.href = App.odooUrl;
 }
-
-/* ── InAppBrowser — _blank dengan intercept download ────────────────────────── */
+ * Addon wu_mobile_download di server Odoo inject JavaScript ke halaman Odoo.
+ * Saat user klik download, script tersebut:
+ * 1. Panggil /wu/mobile/get_download_token untuk dapat access_token
+ * 2. Navigasi ke "wuodoo://download?url=...&filename=..."
+ * Cordova mendeteksi scheme ini via shouldOverrideUrlLoading dan
+ * menjalankan downloadFileToStorage() tanpa perlu session cookie.
+ * --------------------------------------------------------------------------- */
 var _iab = null;
 
 function openOdooInAppBrowser(url) {
@@ -262,9 +264,6 @@ function openOdooInAppBrowser(url) {
         _iab = null;
     }
 
-    // _blank: WebView terpisah dengan event loadstart yang berfungsi.
-    // Session Odoo akan ada setelah user login di IAB (atau sudah login).
-    // Cookie dari IAB diambil via executeScript setelah loadstop.
     _iab = cordova.InAppBrowser.open(url, '_blank', [
         'location=no',
         'toolbar=no',
@@ -276,46 +275,51 @@ function openOdooInAppBrowser(url) {
     ].join(','));
 
     if (!_iab) {
-        dlLog('ERR', 'IAB gagal dibuka, fallback window.location');
+        dlLog('ERR', 'IAB gagal, fallback window.location');
         window.location.href = url;
         return;
     }
     dlLog('INF', 'IAB dibuka ✓');
 
-    // Setelah setiap halaman selesai load, ambil cookie session dari IAB
-    _iab.addEventListener('loadstop', function(event) {
-        var stopUrl = event.url || '';
-        dlLog('INF', 'IAB loadstop: ' + stopUrl);
-
-        // Ambil cookie dari dalam IAB via executeScript
-        _iab.executeScript(
-            { code: 'document.cookie' },
-            function(values) {
-                if (values && values[0]) {
-                    window._iabCookies = values[0];
-                    dlLog('INF', 'Cookie dari IAB: ' + String(values[0]).substr(0, 80));
-                } else {
-                    dlLog('WRN', 'Cookie IAB kosong');
-                }
-            }
-        );
-    });
-
-    // loadstart: intercept URL download SEBELUM WebView navigasi
+    // Intercept custom scheme wuodoo://download?url=...&filename=...
+    // yang dikirim oleh addon wu_mobile_download di server
     _iab.addEventListener('loadstart', function(event) {
         var navUrl = event.url || '';
-        dlLog('INF', 'IAB loadstart: ' + navUrl);
 
-        if (isDownloadUrl(navUrl)) {
-            dlLog('INF', '>>> DOWNLOAD TERDETEKSI: ' + navUrl);
-            try { _iab.stop(); dlLog('INF', 'stop() OK'); }
-            catch(e) { dlLog('WRN', 'stop() err: ' + e); }
-            downloadFileToStorage(navUrl);
+        // Tangkap custom scheme dari addon
+        if (navUrl.indexOf('wuodoo://download') === 0) {
+            dlLog('INF', '>>> wuodoo://download scheme terdeteksi');
+            try { _iab.stop(); } catch(e) {}
+
+            // Parse URL dan filename dari scheme
+            var params = {};
+            var query = navUrl.split('?')[1] || '';
+            query.split('&').forEach(function(part) {
+                var kv = part.split('=');
+                if (kv.length === 2) {
+                    params[decodeURIComponent(kv[0])] = decodeURIComponent(kv[1]);
+                }
+            });
+
+            dlLog('INF', 'Download URL: ' + (params.url || ''));
+            dlLog('INF', 'Filename: ' + (params.filename || ''));
+
+            if (params.url) {
+                downloadFileToStorage(params.url, params.filename);
+            }
+            return;
         }
+
+        // Log semua URL lain untuk debug
+        dlLog('INF', 'IAB loadstart: ' + navUrl.substr(0, 100));
+    });
+
+    _iab.addEventListener('loadstop', function(e) {
+        dlLog('INF', 'IAB loadstop: ' + (e.url || '').substr(0, 100));
     });
 
     _iab.addEventListener('loaderror', function(e) {
-        dlLog('ERR', 'IAB loaderror: ' + e.message + ' url=' + e.url);
+        dlLog('ERR', 'IAB loaderror: ' + e.message);
     });
 
     _iab.addEventListener('exit', function() {
@@ -599,74 +603,57 @@ function showDownloadToast(msg, isError) {
     toast._timer = setTimeout(function() { toast.style.opacity = '0'; }, isError ? 6000 : 3500);
 }
 
-function downloadFileToStorage(url) {
-    dlLog('INF', 'downloadFileToStorage() dipanggil');
-    dlLog('INF', 'URL: ' + url);
+function downloadFileToStorage(url, filenameOverride) {
+    dlLog('INF', 'downloadFileToStorage() url: ' + url);
+    dlLog('INF', 'filenameOverride: ' + (filenameOverride || '-'));
 
     if (!isCordovaReal()) {
-        dlLog('WRN', 'Bukan Cordova real, skip download');
-        showDownloadToast('Bukan Cordova real', true);
+        dlLog('WRN', 'Bukan Cordova real, skip');
         return;
     }
-
-    // Cek plugin File tersedia
     if (typeof window.resolveLocalFileSystemURL === 'undefined') {
-        dlLog('ERR', 'cordova-plugin-file TIDAK tersedia!');
+        dlLog('ERR', 'cordova-plugin-file tidak tersedia!');
         showDownloadToast('Plugin file tidak tersedia', true);
         return;
     }
-
-    // Cek plugin FileTransfer tersedia
     if (typeof FileTransfer === 'undefined') {
-        dlLog('ERR', 'cordova-plugin-file-transfer TIDAK tersedia!');
+        dlLog('ERR', 'cordova-plugin-file-transfer tidak tersedia!');
         showDownloadToast('Plugin file-transfer tidak tersedia', true);
         return;
     }
 
-    var filename = getFilenameFromUrl(url);
+    // URL sudah mengandung access_token dari addon wu_mobile_download
+    // Tidak perlu session cookie sama sekali
+    var filename = filenameOverride || getFilenameFromUrl(url);
     dlLog('INF', 'Filename: ' + filename);
     showDownloadToast('⏳ Mengunduh ' + filename + '...');
 
-    // Log semua path yang tersedia
     if (window.cordova && window.cordova.file) {
-        dlLog('INF', 'externalRootDirectory: ' + cordova.file.externalRootDirectory);
         dlLog('INF', 'externalDataDirectory: ' + cordova.file.externalDataDirectory);
         dlLog('INF', 'dataDirectory: ' + cordova.file.dataDirectory);
-        dlLog('INF', 'cacheDirectory: ' + cordova.file.cacheDirectory);
     } else {
-        dlLog('ERR', 'cordova.file TIDAK tersedia!');
+        dlLog('ERR', 'cordova.file tidak tersedia!');
         showDownloadToast('cordova.file tidak tersedia', true);
         return;
     }
 
-    // Android 10+ (API 29+): WRITE_EXTERNAL_STORAGE tidak berlaku lagi.
-    // Gunakan cordova-plugin-android-permissions untuk minta izin runtime,
-    // atau simpan ke externalDataDirectory (tidak butuh permission).
     var androidVersion = 0;
     try {
-        var ua = navigator.userAgent;
-        var m = ua.match(/Android (\d+)/);
+        var m = navigator.userAgent.match(/Android (\d+)/);
         if (m) androidVersion = parseInt(m[1]);
     } catch(e) {}
     dlLog('INF', 'Android version: ' + androidVersion);
 
-    if (androidVersion >= 10) {
-        // Android 10+: simpan ke externalDataDirectory (app-specific, tidak butuh permission)
-        // File tetap bisa diakses via file manager di /Android/data/com.wuodoo.mobile/files/
-        dlLog('INF', 'Android 10+: pakai externalDataDirectory (no permission needed)');
-        var saveDir = cordova.file.externalDataDirectory || cordova.file.dataDirectory;
-        dlLog('INF', 'saveDir: ' + saveDir);
-        _resolveAndTransfer(saveDir, filename, url);
-    } else if (androidVersion > 0 && androidVersion < 10) {
-        // Android < 10: minta WRITE_EXTERNAL_STORAGE lalu simpan ke Downloads
-        dlLog('INF', 'Android <10: minta permission WRITE_EXTERNAL_STORAGE');
-        _requestStoragePermissionAndDownload(filename, url);
-    } else {
-        // Tidak bisa deteksi versi, coba langsung ke externalDataDirectory
-        dlLog('WRN', 'Tidak bisa deteksi Android version, coba externalDataDirectory');
-        var saveDir2 = cordova.file.externalDataDirectory || cordova.file.dataDirectory;
-        _resolveAndTransfer(saveDir2, filename, url);
-    }
+    // Android 10+: externalDataDirectory tidak butuh permission
+    // Android <10: coba Downloads publik
+    var saveDir = (androidVersion >= 10 || androidVersion === 0)
+        ? (cordova.file.externalDataDirectory || cordova.file.dataDirectory)
+        : (cordova.file.externalRootDirectory
+            ? cordova.file.externalRootDirectory + 'Download/'
+            : cordova.file.externalDataDirectory || cordova.file.dataDirectory);
+
+    dlLog('INF', 'saveDir: ' + saveDir);
+    _resolveAndTransfer(saveDir, filename, url);
 }
 
 function _requestStoragePermissionAndDownload(filename, url) {
@@ -743,19 +730,12 @@ function _resolveAndTransfer(dirPath, filename, url) {
 function doTransfer(dirEntry, filename, url) {
     var targetPath = dirEntry.toURL() + filename;
     dlLog('INF', 'doTransfer target: ' + targetPath);
+    dlLog('INF', 'doTransfer url: ' + url.substr(0, 100));
 
     var ft = new FileTransfer(); // eslint-disable-line no-undef
     var uri = encodeURI(url);
 
-    // Pakai cookie yang diambil dari IAB via executeScript di loadstop
-    var cookieStr = window._iabCookies || '';
-    dlLog('INF', 'Cookie length: ' + cookieStr.length);
-    if (cookieStr) dlLog('INF', 'Cookie: ' + cookieStr.substr(0, 80));
-    else dlLog('WRN', 'Tidak ada cookie — download mungkin gagal 401');
-
-    var headers = {};
-    if (cookieStr) headers['Cookie'] = cookieStr;
-
+    // URL sudah mengandung access_token — tidak perlu Cookie header
     ft.onprogress = function(ev) {
         if (ev.lengthComputable) {
             dlLog('INF', 'Progress: ' + Math.round(ev.loaded / ev.total * 100) + '%');
@@ -772,13 +752,12 @@ function doTransfer(dirEntry, filename, url) {
             showDownloadToast('✅ Tersimpan: ' + filename);
         },
         function(err) {
-            dlLog('ERR', 'GAGAL code=' + err.code + ' http=' + err.http_status + ' body=' + String(err.body || '').substr(0, 100));
+            dlLog('ERR', 'GAGAL code=' + err.code + ' http=' + err.http_status);
             var msg = '❌ Gagal unduh (code ' + err.code + ')';
             if (err.http_status) msg += ' HTTP ' + err.http_status;
             showDownloadToast(msg, true);
         },
-        true,
-        { headers: headers }
+        true  // trustAllHosts untuk server HTTP internal
     );
 }
 
