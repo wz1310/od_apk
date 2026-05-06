@@ -111,43 +111,8 @@ jobs:
           cordova plugin add cordova-plugin-network-information --save
           cordova plugin add cordova-plugin-inappbrowser    --save
 
-      # ── 11. Inject HTTP cleartext config ─────────────────────────────────────
-      # PENTING: dilakukan SETELAH semua plugin install dan SEBELUM build
-      # supaya Cordova tidak overwrite perubahan ini
-      - name: Inject HTTP cleartext (network security config)
-        run: |
-          MANIFEST="platforms/android/app/src/main/AndroidManifest.xml"
-          RES_XML="platforms/android/app/src/main/res/xml"
-
-          echo "=== AndroidManifest.xml sebelum patch ==="
-          grep -n "application" "$MANIFEST" | head -5
-
-          # 1. Buat network_security_config.xml
-          mkdir -p "$RES_XML"
-          cat > "$RES_XML/network_security_config.xml" <<'XML'
-          <?xml version="1.0" encoding="utf-8"?>
-          <network-security-config>
-              <base-config cleartextTrafficPermitted="true">
-                  <trust-anchors>
-                      <certificates src="system" />
-                  </trust-anchors>
-              </base-config>
-          </network-security-config>
-          XML
-          echo "network_security_config.xml created"
-
-          # 2. Patch AndroidManifest.xml
-          # Cari baris <application dan tambahkan atribut jika belum ada
-          if grep -q 'usesCleartextTraffic' "$MANIFEST"; then
-            echo "usesCleartextTraffic already present, skipping"
-          else
-            # Tambahkan ke baris yang mengandung android:hardwareAccelerated
-            sed -i 's|android:hardwareAccelerated="true"|android:hardwareAccelerated="true"\n            android:usesCleartextTraffic="true"\n            android:networkSecurityConfig="@xml/network_security_config"|' "$MANIFEST"
-            echo "Manifest patched"
-          fi
-
-          echo "=== AndroidManifest.xml setelah patch ==="
-          grep -n "usesCleartextTraffic\|networkSecurityConfig\|hardwareAccelerated" "$MANIFEST"
+      # ── 11. Inject HTTP cleartext — handled by Cordova hook (scripts/android_cleartext.js)
+      # Hook dijalankan otomatis saat cordova build, tidak perlu manual patch di sini
 
       # ── 12. Verify requirements ───────────────────────────────────────────────
       - name: Check Cordova requirements

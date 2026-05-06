@@ -40,6 +40,9 @@
     <plugin name="cordova-plugin-network-information" spec="^3.0.0" />
     <plugin name="cordova-plugin-inappbrowser"        spec="^5.0.0" />
 
+    <!-- Hook: inject HTTP cleartext config setelah setiap prepare/build -->
+    <hook type="after_prepare" src="scripts/android_cleartext.js" />
+
     <platform name="android">
         <allow-intent href="market:*" />
 
