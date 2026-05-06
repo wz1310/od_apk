@@ -343,38 +343,61 @@ function hideSplash() {
 
 /* ── Start ──────────────────────────────────────────────────────────────────── */
 function startApp() {
-    initEvents();
-    restoreFromOdoo();
-    renderSavedServers();
-    showPage('page-connect');
-    hideSplash();
+    console.log('startApp() running...');
+    try {
+        initEvents();
+        console.log('initEvents OK');
+        restoreFromOdoo();
+        console.log('restoreFromOdoo OK');
+        renderSavedServers();
+        console.log('renderSavedServers OK');
+        showPage('page-connect');
+        console.log('showPage page-connect OK');
+        hideSplash();
+        console.log('hideSplash OK — app ready');
+    } catch(e) {
+        console.error('startApp ERROR: ' + e.message + ' | ' + e.stack);
+    }
 }
 
 document.addEventListener('deviceready', function() {
-    if (typeof StatusBar !== 'undefined') {
-        StatusBar.backgroundColorByHexString('#714B67');
-        StatusBar.styleLightContent();
-    }
+    console.log('deviceready handler called');
+    try {
+        if (typeof StatusBar !== 'undefined') {
+            StatusBar.backgroundColorByHexString('#714B67');
+            StatusBar.styleLightContent();
+            console.log('StatusBar configured');
+        } else {
+            console.warn('StatusBar plugin not available');
+        }
+    } catch(e) { console.error('StatusBar error: ' + e); }
     startApp();
 }, false);
 
 // Fallback 1: DOMContentLoaded untuk browser biasa
 if (typeof cordova === 'undefined') {
+    console.log('cordova not found — using DOMContentLoaded fallback');
     document.addEventListener('DOMContentLoaded', startApp);
 }
 
-// Fallback 2: Timeout 5 detik — jika deviceready tidak fired sama sekali
-// (terjadi di beberapa device/build tertentu)
+// Fallback 2: Timeout — jika deviceready tidak fired
 var _started = false;
 var _origStart = startApp;
 startApp = function() {
     if (_started) return;
     _started = true;
+    console.log('startApp() called, _started=true');
     _origStart();
 };
 setTimeout(function() {
     if (!_started) {
-        console.warn('deviceready timeout — forcing startApp');
+        console.warn('5s timeout — deviceready never fired, forcing startApp');
         startApp();
     }
 }, 5000);
+setTimeout(function() {
+    if (!_started) {
+        console.error('10s timeout — still not started! cordova=' + (typeof cordova));
+        startApp();
+    }
+}, 10000);

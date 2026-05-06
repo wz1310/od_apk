@@ -139,6 +139,73 @@
     <div id="side-menu-overlay" class="side-menu-overlay hidden"></div>
 
     <script src="cordova.js"></script>
+    <script>
+    /* ── DEBUG OVERLAY — tampil di layar HP ── */
+    (function() {
+        var box = document.createElement('div');
+        box.id = 'debug-box';
+        box.style.cssText = [
+            'position:fixed','bottom:0','left:0','right:0',
+            'max-height:45vh','overflow-y:auto',
+            'background:rgba(0,0,0,0.85)','color:#0f0',
+            'font-size:11px','font-family:monospace',
+            'padding:8px','z-index:99999',
+            'white-space:pre-wrap','word-break:break-all'
+        ].join(';');
+        document.body.appendChild(box);
+
+        var lines = [];
+        function log(type, args) {
+            var msg = Array.prototype.slice.call(args).map(function(a) {
+                try { return (typeof a === 'object') ? JSON.stringify(a) : String(a); }
+                catch(e) { return String(a); }
+            }).join(' ');
+            var ts = new Date().toISOString().substr(11,12);
+            var color = type==='error'?'#f66': type==='warn'?'#fa0':'#0f0';
+            lines.push('<span style="color:'+color+'">['+ts+']['+type.toUpperCase()+'] '+
+                msg.replace(/</g,'&lt;')+'</span>');
+            if (lines.length > 80) lines.shift();
+            box.innerHTML = lines.join('\n');
+            box.scrollTop = box.scrollHeight;
+        }
+
+        var _log   = console.log.bind(console);
+        var _warn  = console.warn.bind(console);
+        var _error = console.error.bind(console);
+        console.log   = function() { _log.apply(console,arguments);   log('log',  arguments); };
+        console.warn  = function() { _warn.apply(console,arguments);  log('warn', arguments); };
+        console.error = function() { _error.apply(console,arguments); log('error',arguments); };
+
+        window.onerror = function(msg, src, line, col, err) {
+            log('error', [msg + ' @ ' + src + ':' + line + ':' + col]);
+            return false;
+        };
+        window.onunhandledrejection = function(e) {
+            log('error', ['UnhandledPromise: ' + (e.reason || e)]);
+        };
+
+        /* Log info awal */
+        log('log', ['=== WU Odoo Debug ===']);
+        log('log', ['UA: ' + navigator.userAgent.substr(0,80)]);
+        log('log', ['cordova defined: ' + (typeof cordova !== 'undefined')]);
+        log('log', ['DOM ready, waiting deviceready...']);
+
+        /* Pantau deviceready */
+        document.addEventListener('deviceready', function() {
+            log('log', ['deviceready FIRED ✓']);
+            log('log', ['cordova version: ' + (typeof cordova !== 'undefined' ? cordova.version : 'N/A')]);
+        }, false);
+
+        /* Timeout warning */
+        setTimeout(function() {
+            log('warn', ['3s passed — deviceready status: ' +
+                (typeof cordova !== 'undefined' ? 'cordova exists' : 'cordova NOT found')]);
+        }, 3000);
+        setTimeout(function() {
+            log('warn', ['8s passed — forcing startApp if not started']);
+        }, 8000);
+    })();
+    </script>
     <script src="js/app.js"></script>
 </body>
 </html>
