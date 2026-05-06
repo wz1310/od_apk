@@ -247,6 +247,8 @@ function openOdoo() {
     // Download dihandle oleh addon wu_mobile_download yang inject script ke Odoo
     window.location.href = App.odooUrl;
 }
+
+/* ── InAppBrowser untuk intercept custom scheme wuodoo://download ────────────
  * Addon wu_mobile_download di server Odoo inject JavaScript ke halaman Odoo.
  * Saat user klik download, script tersebut:
  * 1. Panggil /wu/mobile/get_download_token untuk dapat access_token
