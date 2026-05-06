@@ -11,6 +11,8 @@ jobs:
   build:
     name: Build APK
     runs-on: ubuntu-22.04
+    env:
+      HAS_KEYSTORE: ${{ secrets.KEYSTORE_BASE64 != '' }}
 
     steps:
       # ── 1. Checkout ──────────────────────────────────────────────────────────
@@ -126,7 +128,7 @@ jobs:
 
       # ── 14. Sign Release APK (opsional, butuh secrets) ───────────────────────
       - name: Sign Release APK
-        if: ${{ secrets.KEYSTORE_BASE64 != '' }}
+        if: ${{ env.HAS_KEYSTORE == 'true' }}
         env:
           KEYSTORE_BASE64:   ${{ secrets.KEYSTORE_BASE64 }}
           KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
@@ -144,7 +146,7 @@ jobs:
           rm -f wu_odoo.keystore
 
       - name: Upload Signed Release APK
-        if: ${{ secrets.KEYSTORE_BASE64 != '' }}
+        if: ${{ env.HAS_KEYSTORE == 'true' }}
         uses: actions/upload-artifact@v4
         with:
           name: wu-odoo-release-signed-apk
