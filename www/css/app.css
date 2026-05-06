@@ -93,8 +93,8 @@ body {
 /* ─── Page Header ───────────────────────────────────────────────────────────── */
 .page-header {
     background: linear-gradient(160deg, var(--primary) 0%, var(--primary-dark) 100%);
-    /* Top padding = safe-area-inset-top + comfortable spacing */
-    padding: calc(var(--sat) + 20px) 20px 28px;
+    /* padding-top dioverride oleh JS setelah statusbar height diketahui */
+    padding: 44px 20px 28px;
     text-align: center;
     color: #fff;
     position: relative;
@@ -125,7 +125,7 @@ body {
 /* ─── Back Button ───────────────────────────────────────────────────────────── */
 .btn-back {
     position: absolute;
-    top: calc(var(--sat) + 12px);
+    top: 44px; /* dioverride JS */
     left: 14px;
     background: rgba(255,255,255,0.18);
     border: none; color: #fff;
@@ -360,7 +360,7 @@ input[type="text"]::placeholder { color: var(--text-muted); }
 
 .side-menu-header {
     display: flex; align-items: center; gap: 12px;
-    padding: calc(var(--sat) + 16px) 16px 16px;
+    padding: 44px 16px 16px; /* dioverride JS */
     background: linear-gradient(160deg, var(--primary) 0%, var(--primary-dark) 100%);
     flex-shrink: 0;
 }

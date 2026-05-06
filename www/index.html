@@ -140,6 +140,59 @@
 
     <script src="cordova.js"></script>
     <script>
+    /* ── STATUS BAR SAFE AREA ─────────────────────────────────────────── */
+    (function() {
+        function applyStatusBarPadding() {
+            var pad = 0;
+
+            // 1. Coba dari Cordova StatusBar plugin
+            if (typeof StatusBar !== 'undefined' && StatusBar.height) {
+                pad = StatusBar.height;
+            }
+            // 2. Coba env(safe-area-inset-top) via CSS computed
+            if (!pad) {
+                var testEl = document.createElement('div');
+                testEl.style.cssText = 'position:fixed;top:env(safe-area-inset-top,0px);height:0;width:0;visibility:hidden;';
+                document.body.appendChild(testEl);
+                var top = parseFloat(window.getComputedStyle(testEl).top) || 0;
+                document.body.removeChild(testEl);
+                if (top > 0) pad = top;
+            }
+            // 3. Fallback: estimasi dari selisih screen vs window (Android)
+            if (!pad) {
+                var diff = window.screen.height - window.innerHeight;
+                // diff biasanya = statusbar + navbar; ambil sebagian kecil
+                if (diff > 0 && diff < 120) pad = Math.min(diff, 32);
+            }
+            // 4. Minimum 24px untuk Android jika masih 0
+            if (!pad) pad = 24;
+
+            console.log('statusBarPad=' + pad + 'px');
+
+            // Terapkan ke semua elemen yang perlu
+            var style = document.createElement('style');
+            style.innerHTML =
+                '#splash-screen { padding-top: ' + pad + 'px !important; }' +
+                '.page-header    { padding-top: ' + (pad + 20) + 'px !important; }' +
+                '.btn-back        { top: ' + (pad + 12) + 'px !important; }' +
+                '.side-menu-header { padding-top: ' + (pad + 16) + 'px !important; }' +
+                '#debug-toggle   { top: ' + (pad + 10) + 'px !important; }';
+            document.head.appendChild(style);
+        }
+
+        // Jalankan setelah deviceready (Cordova) atau DOMContentLoaded (browser)
+        document.addEventListener('deviceready', function() {
+            // Beri sedikit delay agar StatusBar plugin siap
+            setTimeout(applyStatusBarPadding, 100);
+        }, false);
+
+        // Fallback untuk browser dev
+        if (typeof cordova === 'undefined') {
+            document.addEventListener('DOMContentLoaded', applyStatusBarPadding);
+        }
+    })();
+    </script>
+    <script>
     /* ── DEBUG OVERLAY — hidden by default, toggle via burger button ── */
     (function() {
         // Burger button (kiri atas, selalu visible)
