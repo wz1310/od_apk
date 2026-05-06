@@ -145,50 +145,74 @@ function fetchDatabases() {
     App.host    = host;
     App.baseUrl = buildBaseUrl(App.protocol, host);
 
-    var url = proxyUrl(App.baseUrl + '/web/database/list');
+function fetchDatabases() {
+    console.log('fetchDatabases() called');
+    var host = $('input-host').value.trim();
+    console.log('host value: [' + host + ']');
+    if (!host) { showConnectError('Masukkan alamat server terlebih dahulu.'); return; }
+
+    hideConnectError();
+    setConnectLoading(true);
+
+    App.host    = host;
+    App.baseUrl = buildBaseUrl(App.protocol, host);
+
+    var isCordovaReal = typeof cordova !== 'undefined' && cordova.version !== 'stub-browser';
+    var targetUrl = App.baseUrl + '/web/database/list';
+    var url       = isCordovaReal ? targetUrl : ('/proxy?url=' + encodeURIComponent(targetUrl));
+
+    console.log('isCordova: ' + isCordovaReal);
+    console.log('url: ' + url);
 
     var xhr = new XMLHttpRequest();
     xhr.open('POST', url, true);
     xhr.setRequestHeader('Content-Type', 'application/json');
     xhr.timeout = 15000;
 
+    xhr.onreadystatechange = function() {
+        console.log('readyState=' + xhr.readyState + (xhr.readyState===4?' status='+xhr.status:''));
+    };
+
     xhr.onload = function() {
+        console.log('onload status=' + xhr.status + ' resp=' + xhr.responseText.substr(0,100));
         setConnectLoading(false);
         if (xhr.status >= 200 && xhr.status < 300) {
             try {
                 var resp = JSON.parse(xhr.responseText);
                 var dbs  = resp.result || [];
+                console.log('dbs: ' + JSON.stringify(dbs));
                 showDatabasePage(dbs);
             } catch(e) {
-                // Mungkin Odoo berjalan tapi endpoint /web/database/list diblokir
-                // Langsung tampilkan input manual
+                console.warn('parse error: ' + e + ' — showing manual');
                 showDatabasePage([]);
             }
         } else if (xhr.status === 403 || xhr.status === 404) {
-            // Odoo bisa jadi disable list_db — tampilkan input manual
+            console.warn('403/404 — showing manual');
             showDatabasePage([]);
         } else {
-            showConnectError('Server error ' + xhr.status + '. Periksa alamat server.');
+            showConnectError('Server error ' + xhr.status);
         }
     };
 
     xhr.onerror = function() {
+        console.error('onerror! url=' + url + ' readyState=' + xhr.readyState);
         setConnectLoading(false);
         showConnectError(
             'Tidak dapat terhubung ke:\n' + App.baseUrl +
             '\n\nPastikan:\n' +
-            '• Port sudah benar (contoh: 157.230.247.220:8069)\n' +
-            '• Server Odoo sedang berjalan\n' +
-            '• Firewall/port terbuka\n' +
+            '• Port benar (contoh: 157.230.247.220:8069)\n' +
+            '• Server Odoo berjalan\n' +
             '• Koneksi internet aktif'
         );
     };
 
     xhr.ontimeout = function() {
+        console.error('ontimeout! url=' + url);
         setConnectLoading(false);
-        showConnectError('Timeout — server tidak merespons dalam 15 detik.\nCoba tambahkan port, contoh: ' + host + ':8069');
+        showConnectError('Timeout 15 detik. Coba: ' + host + ':8069');
     };
 
+    console.log('sending XHR...');
     xhr.send(JSON.stringify({ jsonrpc: '2.0', method: 'call', params: {} }));
 }
 
@@ -310,6 +334,10 @@ function restoreFromOdoo() {
 
 /* ── Init events ────────────────────────────────────────────────────────────── */
 function initEvents() {
+    console.log('initEvents() start');
+    console.log('btn-connect el: ' + ($('btn-connect') ? 'FOUND' : 'NULL'));
+    console.log('input-host el: '  + ($('input-host')  ? 'FOUND' : 'NULL'));
+
     $('btn-http').addEventListener('click', function() {
         App.protocol = 'http'; updateProtocolToggle();
     });
@@ -317,7 +345,10 @@ function initEvents() {
         App.protocol = 'https'; updateProtocolToggle();
     });
 
-    $('btn-connect').addEventListener('click', fetchDatabases);
+    $('btn-connect').addEventListener('click', function() {
+        console.log('btn-connect addEventListener fired');
+        fetchDatabases();
+    });
     $('input-host').addEventListener('keydown', function(e) {
         if (e.key === 'Enter' || e.keyCode === 13) fetchDatabases();
     });
