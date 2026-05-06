@@ -49,26 +49,23 @@
         var fn = filename || getFilename(absUrl);
         console.log('[WU Downloader] sendToApp:', fn, absUrl);
 
-        // Kirim ke Cordova parent via postMessage
-        // app.js listen di window untuk pesan ini
+        // Simpan ke localStorage — app.js akan membaca ini saat kembali ke index.html
         try {
-            window.parent.postMessage(
-                JSON.stringify({ type: 'wu_download', url: absUrl, filename: fn }),
-                '*'
-            );
-        } catch (e) {}
+            localStorage.setItem('wu_pending_download', JSON.stringify({
+                url: absUrl,
+                filename: fn,
+                ts: Date.now()
+            }));
+            console.log('[WU Downloader] Tersimpan di localStorage');
+        } catch(e) {
+            console.error('[WU Downloader] localStorage error:', e);
+        }
 
-        // Juga coba via custom scheme (fallback)
-        try {
-            var iframe = document.createElement('iframe');
-            iframe.style.display = 'none';
-            iframe.src = 'wuodoo://download?url=' + encodeURIComponent(absUrl) +
-                         '&filename=' + encodeURIComponent(fn);
-            document.body.appendChild(iframe);
-            setTimeout(function () {
-                if (iframe.parentNode) iframe.parentNode.removeChild(iframe);
-            }, 1000);
-        } catch (e) {}
+        // Navigasi kembali ke index.html agar app.js bisa proses download
+        // Cordova WebView akan kembali ke halaman utama
+        setTimeout(function() {
+            window.location.href = 'index.html';
+        }, 100);
     }
 
     // ── Override XMLHttpRequest untuk intercept download via XHR ─────────────

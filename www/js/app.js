@@ -243,201 +243,8 @@ function openOdoo() {
         database: App.database, baseUrl: App.baseUrl
     }));
     dlLog('INF', 'openOdoo → ' + App.odooUrl);
-
-    if (isCordovaReal() && window.cordova && window.cordova.InAppBrowser) {
-        openOdooInAppBrowser(App.odooUrl);
-    } else {
-        window.location.href = App.odooUrl;
-    }
-}
-
-/* ── InAppBrowser — inject downloader.js setelah Odoo load ──────────────────── */
-var _iab = null;
-
-function openOdooInAppBrowser(url) {
-    dlLog('INF', 'openOdooInAppBrowser: ' + url);
-
-    if (_iab) {
-        try { _iab.close(); } catch(e) {}
-        _iab = null;
-    }
-
-    // _blank: WebView baru, tapi kita inject downloader.js setelah load
-    // Session Odoo akan ada setelah user login di IAB
-    _iab = cordova.InAppBrowser.open(url, '_blank', [
-        'location=no',
-        'toolbar=no',
-        'fullscreen=yes',
-        'zoom=no',
-        'hardwareback=yes',
-        'clearcache=no',
-        'clearsessioncache=no'
-    ].join(','));
-
-    if (!_iab) {
-        dlLog('ERR', 'IAB gagal, fallback window.location');
-        window.location.href = url;
-        return;
-    }
-    dlLog('INF', 'IAB dibuka ✓');
-
-    // Setelah setiap halaman selesai load, inject downloader.js
-    _iab.addEventListener('loadstop', function(event) {
-        var stopUrl = event.url || '';
-        dlLog('INF', 'IAB loadstop: ' + stopUrl.substr(0, 80));
-
-        // Inject downloader.js ke halaman Odoo
-        // File ini ada di www/js/downloader.js (bisa diakses via https://localhost)
-        _iab.executeScript({
-            code: [
-                '(function(){',
-                '  if(window.__wuDownloaderInstalled) return;',
-                '  var s = document.createElement("script");',
-                '  s.src = "https://localhost/js/downloader.js";',
-                '  s.onerror = function(){ console.error("[WU] downloader.js gagal load"); };',
-                '  s.onload = function(){ console.log("[WU] downloader.js loaded"); };',
-                '  document.head.appendChild(s);',
-                '})()'
-            ].join('')
-        }, function(result) {
-            dlLog('INF', 'executeScript inject OK');
-        });
-    });
-
-    // Intercept custom scheme wuodoo://download dari downloader.js
-    _iab.addEventListener('loadstart', function(event) {
-        var navUrl = event.url || '';
-
-        if (navUrl.indexOf('wuodoo://download') === 0) {
-            dlLog('INF', '>>> wuodoo://download terdeteksi');
-            try { _iab.stop(); } catch(e) {}
-
-            var params = {};
-            var query = navUrl.split('?')[1] || '';
-            query.split('&').forEach(function(part) {
-                var kv = part.split('=');
-                if (kv.length >= 2) {
-                    params[decodeURIComponent(kv[0])] = decodeURIComponent(kv.slice(1).join('='));
-                }
-            });
-
-            dlLog('INF', 'URL: ' + (params.url || ''));
-            dlLog('INF', 'Filename: ' + (params.filename || ''));
-
-            if (params.url) {
-                // Ambil cookie session dari IAB untuk FileTransfer
-                _iab.executeScript({ code: 'document.cookie' }, function(vals) {
-                    if (vals && vals[0]) {
-                        window._iabCookies = vals[0];
-                        dlLog('INF', 'Cookie: ' + String(vals[0]).substr(0, 60));
-                    }
-                    downloadFileToStorage(params.url, params.filename);
-                });
-            }
-            return;
-        }
-
-        // Log URL lain (jangan log semua agar tidak spam)
-        if (navUrl && navUrl.indexOf('http') === 0) {
-            dlLog('INF', 'IAB loadstart: ' + navUrl.substr(0, 80));
-        }
-    });
-
-    _iab.addEventListener('loaderror', function(e) {
-        dlLog('ERR', 'IAB loaderror: ' + e.message);
-    });
-
-    _iab.addEventListener('exit', function() {
-        dlLog('INF', 'IAB exit');
-        _iab = null;
-        showPage('page-connect');
-        renderSavedServers();
-    });
-
-    // Listen postMessage dari downloader.js (alternatif custom scheme)
-    window.addEventListener('message', function(event) {
-        try {
-            var data = JSON.parse(event.data);
-            if (data && data.type === 'wu_download') {
-                dlLog('INF', 'postMessage download: ' + data.filename);
-                downloadFileToStorage(data.url, data.filename);
-            }
-        } catch(e) {}
-    });
-}
-
-function openOdooInAppBrowser(url) {
-    dlLog('INF', 'openOdooInAppBrowser: ' + url);
-
-    if (_iab) {
-        try { _iab.close(); } catch(e) {}
-        _iab = null;
-    }
-
-    _iab = cordova.InAppBrowser.open(url, '_blank', [
-        'location=no',
-        'toolbar=no',
-        'fullscreen=yes',
-        'zoom=no',
-        'hardwareback=yes',
-        'clearcache=no',
-        'clearsessioncache=no'
-    ].join(','));
-
-    if (!_iab) {
-        dlLog('ERR', 'IAB gagal, fallback window.location');
-        window.location.href = url;
-        return;
-    }
-    dlLog('INF', 'IAB dibuka ✓');
-
-    // Intercept custom scheme wuodoo://download?url=...&filename=...
-    // yang dikirim oleh addon wu_mobile_download di server
-    _iab.addEventListener('loadstart', function(event) {
-        var navUrl = event.url || '';
-
-        // Tangkap custom scheme dari addon
-        if (navUrl.indexOf('wuodoo://download') === 0) {
-            dlLog('INF', '>>> wuodoo://download scheme terdeteksi');
-            try { _iab.stop(); } catch(e) {}
-
-            // Parse URL dan filename dari scheme
-            var params = {};
-            var query = navUrl.split('?')[1] || '';
-            query.split('&').forEach(function(part) {
-                var kv = part.split('=');
-                if (kv.length === 2) {
-                    params[decodeURIComponent(kv[0])] = decodeURIComponent(kv[1]);
-                }
-            });
-
-            dlLog('INF', 'Download URL: ' + (params.url || ''));
-            dlLog('INF', 'Filename: ' + (params.filename || ''));
-
-            if (params.url) {
-                downloadFileToStorage(params.url, params.filename);
-            }
-            return;
-        }
-
-        // Log semua URL lain untuk debug
-        dlLog('INF', 'IAB loadstart: ' + navUrl.substr(0, 100));
-    });
-
-    _iab.addEventListener('loadstop', function(e) {
-        dlLog('INF', 'IAB loadstop: ' + (e.url || '').substr(0, 100));
-    });
-
-    _iab.addEventListener('loaderror', function(e) {
-        dlLog('ERR', 'IAB loaderror: ' + e.message);
-    });
-
-    _iab.addEventListener('exit', function() {
-        dlLog('INF', 'IAB exit');
-        _iab = null;
-        showPage('page-connect');
-        renderSavedServers();
-    });
+    // Navigasi langsung — WebView Cordova menyimpan session cookie Odoo
+    window.location.href = App.odooUrl;
 }
 
 /* ── Side Menu ───────────────────────────────────────────────────────────────── */
@@ -536,9 +343,12 @@ function startApp() {
         _ensureDlPanel();
         dlLog('INF', '=== WU Odoo Download Debug ===');
         dlLog('INF', 'isCordovaReal: ' + isCordovaReal());
-        dlLog('INF', 'cordova.InAppBrowser: ' + (typeof cordova !== 'undefined' ? typeof cordova.InAppBrowser : 'cordova undefined'));
         dlLog('INF', 'FileTransfer: ' + (typeof FileTransfer));
         dlLog('INF', 'resolveLocalFileSystemURL: ' + (typeof window.resolveLocalFileSystemURL));
+
+        // Cek apakah ada pending download dari halaman Odoo
+        _checkPendingDownload();
+
         initEvents();
         restoreFromOdoo();
         renderSavedServers();
@@ -547,6 +357,31 @@ function startApp() {
         console.log('app ready ✓');
     } catch(e) {
         console.error('startApp ERROR: ' + e.message + '\n' + e.stack);
+    }
+}
+
+function _checkPendingDownload() {
+    try {
+        var pending = localStorage.getItem('wu_pending_download');
+        if (!pending) return;
+        localStorage.removeItem('wu_pending_download');
+        var data = JSON.parse(pending);
+        if (!data || !data.url) return;
+
+        dlLog('INF', 'Pending download ditemukan: ' + data.url);
+        dlLog('INF', 'Filename: ' + (data.filename || '-'));
+
+        // Cookie sudah ada di WebView Cordova karena kita pakai window.location.href
+        var cookieStr = document.cookie || '';
+        dlLog('INF', 'Cookie dari WebView: ' + cookieStr.substr(0, 80));
+        window._iabCookies = cookieStr;
+
+        // Delay sedikit agar UI siap
+        setTimeout(function() {
+            downloadFileToStorage(data.url, data.filename);
+        }, 500);
+    } catch(e) {
+        dlLog('WRN', '_checkPendingDownload error: ' + e);
     }
 }
 
